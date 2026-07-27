@@ -1,0 +1,253 @@
+import os
+import sys
+import json
+import time
+import asyncio
+import threading
+import socket
+from flask import Flask, render_template, request, jsonify
+from bot_engine import CHEPBotEngine
+
+sys.stdout.reconfigure(encoding='utf-8')
+
+app = Flask(__name__)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
+MESSAGES_FILE = os.path.join(BASE_DIR, "messages.json")
+DAILY_DELIVERIES_FILE = os.path.join(BASE_DIR, "daily_deliveries.json")
+UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+def load_json(filepath, default=[]):
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default
+    return default
+
+def save_json(filepath, data):
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Erro ao salvar json: {e}")
+
+logs_list = ["Servidor Web do CHEP Bot iniciado. Acesse pelo PC ou Celular!"]
+delivery_statuses = {}
+
+def append_log(msg: str):
+    timestamp = time.strftime("[%H:%M:%S] ")
+    full_msg = f"{timestamp}{msg}"
+    print(full_msg)
+    logs_list.append(full_msg)
+    if len(logs_list) > 40:
+        logs_list.pop(0)
+
+engine = CHEPBotEngine(log_callback=append_log)
+async_loop = asyncio.new_event_loop()
+
+def start_async_loop(loop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+threading.Thread(target=start_async_loop, args=(async_loop,), daemon=True).start()
+
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+@app.route("/")
+def index():
+    drivers = load_json(DRIVERS_FILE)
+    messages = load_json(MESSAGES_FILE)
+    daily_deliveries = load_json(DAILY_DELIVERIES_FILE, default=[])
+    local_ip = get_local_ip()
+    return render_template("index.html", drivers=drivers, messages=messages, daily_deliveries=daily_deliveries, local_ip=local_ip, delivery_statuses=delivery_statuses)
+
+@app.route("/api/logs")
+def get_logs():
+    return jsonify({"logs": logs_list, "statuses": delivery_statuses})
+
+@app.route("/api/connect_chrome", methods=["POST"])
+def connect_chrome():
+    data = request.json or {}
+    mode = data.get("mode", "cdp")
+    profile = data.get("profile", "BR__LH_PURM2")
+    
+    fut = asyncio.run_coroutine_threadsafe(engine.get_browser_for_profile(profile), async_loop)
+    try:
+        fut.result(timeout=25)
+        return jsonify({"success": True, "mode": f"Chrome {profile} com 2 Abas Ativas (CMA + Service Desk)"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/execute", methods=["POST"])
+def execute_occurrence():
+    delivery = request.form.get("delivery", "").strip()
+    profile = request.form.get("profile", "BR__LH_PURM2")
+    include_driver = request.form.get("include_driver") == "true"
+    driver_id = request.form.get("driver_id", "")
+    driver_text = request.form.get("driver_text", "").strip()
+    
+    include_location = request.form.get("include_location") == "true"
+    note_type = request.form.get("note_type", "SAP (Not App) LOCALIZAÇÃO DO VEÍCULO")
+    location_text = request.form.get("location_text", "").strip()
+    
+    include_contact = request.form.get("include_contact") == "true"
+    priority = request.form.get("priority", "HIGH")
+    test_mode = request.form.get("test_mode") == "true"
+    coleta_dia = request.form.get("coleta_dia") == "true"
+
+    if not delivery:
+        return jsonify({"success": False, "error": "Número da delivery é obrigatório!"}), 400
+
+    attachment_path = None
+    if "photo" in request.files:
+        file = request.files["photo"]
+        if file and file.filename:
+            file_path = os.path.join(UPLOADS_DIR, f"{int(time.time())}_{file.filename}")
+            file.save(file_path)
+            attachment_path = file_path
+
+    daily_deliveries = load_json(DAILY_DELIVERIES_FILE, default=[])
+    if coleta_dia and delivery not in daily_deliveries:
+        daily_deliveries.append(delivery)
+        save_json(DAILY_DELIVERIES_FILE, daily_deliveries)
+        delivery_statuses[delivery] = "yellow"
+        append_log(f"🔔 Delivery #{delivery} adicionada ao monitoramento 'COLETA DO DIA' (a cada 20 min)!")
+
+    def run_tasks():
+        append_log(f"Perfil: {profile} | Delivery #{delivery}")
+        if test_mode:
+            append_log("🧪 [MODO TESTE] Preenche tudo, tira print e NÃO salva!")
+
+        if include_driver and driver_text:
+            append_log("[1/3] Ocorrência de DADOS DO MOTORISTA...")
+            fut1 = asyncio.run_coroutine_threadsafe(
+                engine.create_occurrence(
+                    delivery_number=delivery,
+                    note_type="SAP (Not App) DADOS MOTORISTA / VEÍCULO",
+                    description=driver_text,
+                    priority=priority,
+                    profile_name=profile,
+                    attachment_path=None,
+                    test_mode=test_mode
+                ),
+                async_loop
+            )
+            res1 = fut1.result()
+            if not res1:
+                append_log(f"❌ Falha no envio da ocorrência do motorista.")
+
+        if include_location and location_text:
+            append_log("[2/3] Ocorrência de STATUS / LOCALIZAÇÃO...")
+            fut2 = asyncio.run_coroutine_threadsafe(
+                engine.create_occurrence(
+                    delivery_number=delivery,
+                    note_type=note_type,
+                    description=location_text,
+                    priority=priority,
+                    profile_name=profile,
+                    attachment_path=attachment_path,
+                    test_mode=test_mode
+                ),
+                async_loop
+            )
+            res2 = fut2.result()
+            if not res2:
+                append_log(f"❌ Falha no envio da ocorrência de localização.")
+
+        if include_contact:
+            append_log("[3/3] Resposta no 2º site (contact.cmaweb.chep.com)...")
+            fut3 = asyncio.run_coroutine_threadsafe(
+                engine.respond_contact_site(
+                    delivery_number=delivery,
+                    message_text=location_text or driver_text,
+                    profile_name=profile,
+                    attachment_path=attachment_path,
+                    test_mode=test_mode
+                ),
+                async_loop
+            )
+            fut3.result()
+
+        if test_mode:
+            append_log(f"🧪 [MODO TESTE CONCLUÍDO] Nenhum botão de Salvar/Enviar foi clicado na Delivery #{delivery}!")
+        else:
+            append_log(f"🚀 Processo concluído com sucesso para a Delivery #{delivery}!")
+
+    threading.Thread(target=run_tasks, daemon=True).start()
+    return jsonify({"success": True, "message": "Preenchimento iniciado em segundo plano!"})
+
+@app.route("/api/check_replies", methods=["POST"])
+def check_replies():
+    data = request.json or {}
+    profile = data.get("profile", "BR__LH_PURM2")
+    daily_deliveries = load_json(DAILY_DELIVERIES_FILE, default=[])
+    
+    if not daily_deliveries:
+        return jsonify({"success": True, "message": "Nenhuma delivery cadastrada hoje.", "answered": []})
+
+    def run_check():
+        append_log(f"🔍 [Monitor] Verificando respostas pendentes para {len(daily_deliveries)} deliveries no perfil {profile}...")
+        fut = asyncio.run_coroutine_threadsafe(
+            engine.check_pending_carrier_replies(daily_deliveries, profile_name=profile),
+            async_loop
+        )
+        answered = fut.result(timeout=120)
+        for deliv in answered:
+            delivery_statuses[deliv] = "purple"
+            append_log(f"🚨 Delivery #{deliv} atualizada para ROXO!")
+
+    threading.Thread(target=run_check, daemon=True).start()
+    return jsonify({"success": True, "message": "Verificação de respostas iniciada em segundo plano!"})
+
+@app.route("/api/drivers", methods=["GET", "POST", "DELETE"])
+def handle_drivers():
+    drivers = load_json(DRIVERS_FILE)
+    if request.method == "GET":
+        return jsonify(drivers)
+    elif request.method == "POST":
+        new_driver = request.json
+        drivers.append(new_driver)
+        save_json(DRIVERS_FILE, drivers)
+        return jsonify({"success": True, "drivers": drivers})
+    elif request.method == "DELETE":
+        driver_id = request.args.get("id")
+        drivers = [d for d in drivers if str(d.get("id")) != str(driver_id)]
+        save_json(DRIVERS_FILE, drivers)
+        return jsonify({"success": True, "drivers": drivers})
+
+@app.route("/api/messages", methods=["GET", "POST", "DELETE"])
+def handle_messages():
+    messages = load_json(MESSAGES_FILE)
+    if request.method == "GET":
+        return jsonify(messages)
+    elif request.method == "POST":
+        new_msg = request.json
+        messages.append(new_msg)
+        save_json(MESSAGES_FILE, messages)
+        return jsonify({"success": True, "messages": messages})
+    elif request.method == "DELETE":
+        msg_id = request.args.get("id")
+        messages = [m for m in messages if str(m.get("id")) != str(msg_id)]
+        save_json(MESSAGES_FILE, messages)
+        return jsonify({"success": True, "messages": messages})
+
+if __name__ == "__main__":
+    local_ip = get_local_ip()
+    print("=" * 65)
+    print("CHEP BOT WEB SERVER INICIADO!")
+    print(f"Acese pelo PC:      http://localhost:5000")
+    print(f"Acese pelo Celular: http://{local_ip}:5000")
+    print("=" * 65)
+    app.run(host="0.0.0.0", port=5000, debug=False)

@@ -1,0 +1,70 @@
+[
+  {
+    "id": "dados_motorista",
+    "title": "DADOS MOTORISTA / VEÍCULO",
+    "note_type": "SAP (Not App) DADOS MOTORISTA / VEÍCULO",
+    "text": "Segue abaixo dados do veiculo e motorista que irá realizar a coleta.\n\nNOME: {NOME}\nCPF: {CPF}\nPLACA: {PLACA}"
+  },
+  {
+    "id": "coletado",
+    "title": "COLETADO (Com Anexo de Foto da NF)",
+    "note_type": "SAP (Not App) COLETADO",
+    "text": "COLETADO"
+  },
+  {
+    "id": "qtde_divergente",
+    "title": "QTDE DIVERGENTE",
+    "note_type": "SAP (D0) QTDE DIVERGENTE (MAIOR OU MENOR) DE PALLETS",
+    "text": "Veiculo na doca aguardando carregamento, motorista informou que por normas de segurança do D não é possível acompanhar o carregamento."
+  },
+  {
+    "id": "localizacao_do_veiculo",
+    "title": "LOCALIZAÇÃO DO VEICULO",
+    "note_type": "SAP (Not App) LOCALIZAÇÃO DO VEÍCULO",
+    "text": "Veiculo encontra-se no D para realizar o carregamento."
+  },
+  {
+    "id": "excesso_veiculos",
+    "title": "PROBLEMA DE ACESSO / EXCESSO DE VEICULO",
+    "note_type": "SAP (ZJ) PROBLEMA DE ACESSO / EXCESSO DE VEÍCULOS NO CLIENTE",
+    "text": "Veiculo no D aguardando acesso para realizar o carregamento. Motorista foi informado que devido ao excesso de veiculos não tem previsão para o carregamento."
+  },
+  {
+    "id": "deslocamento_vazio",
+    "title": "DESLOCAMENTO VAZIO (Envio no 2º Site)",
+    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
+    "text": "Por falta de retorno e exceder o limite de 2H de espera e não ter sucesso na coleta estamos retirando o veiculo do local.\n\nFavor, autorizar deslocamento vazio."
+  },
+  {
+    "id": "criacao_de_linha_geral",
+    "title": "CRIAÇÃO DE LINHAS (Qtd Paletes + Qtd NFs)",
+    "note_type": "SAP (Not App) CRIAÇÃO DE LINHAS",
+    "is_criacao_linha_qtd": true,
+    "text": "Veiculo carregado com 125 paletes e 2 NF.\n\nFavor gera 1 linha."
+  },
+  {
+    "id": "criacao_de_linha",
+    "title": "ALTERAR ORDEM / CRIAÇÃO DE LINHA (CNPJ)",
+    "note_type": "SAP (Not App) CRIAÇÃO DE LINHAS",
+    "is_criacao_linha": true,
+    "template": "Favor Alterar Ordem, pois a Nota Fiscal {NF}. {PALLETS} Pallets saiu com o CNPJ: {CNPJ}",
+    "default_nf": "2763971",
+    "default_pallets": "408",
+    "default_cnpj": "06.189.213/0001-90",
+    "text": "Favor Alterar Ordem, pois a Nota Fiscal 2763971. 408 Pallets saiu com o CNPJ: 06.189.213/0001-90"
+  },
+  {
+    "id": "problema_emissao_nf",
+    "title": "PROBLEMA NA EMISSÃO DE NF",
+    "note_type": "SAP (L4) PROBLEMAS NA EMISSÃO DE NF",
+    "text": "Veiculo carregado aguardando apenas a NF."
+  },
+  {
+    "id": "sem_paletes_no_d",
+    "title": "SEM PALETES NO D (Sem Paletes)",
+    "note_type": "SAP (ZV) SEM PALETES NO D",
+    "is_sem_paletes": true,
+    "default_nome": "Leandro",
+    "text": "Veiculo no D aguardando para carregar, onde o motorista foi informado pelo Sr. Leandro que o D não tem paletes para carregar.\n\nFavor, verificar e como proceder."
+  }
+]
