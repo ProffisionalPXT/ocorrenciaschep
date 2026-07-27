@@ -30,9 +30,9 @@ class CHEPBotEngine:
     def load_env_vars(self):
         load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
         self.email_purm2 = os.getenv("CHEP_EMAIL_PURM2", "gabrielpeixoto@purm2.com.br")
-        self.password_purm2 = os.getenv("CHEP_PASSWORD_PURM2", "")
+        self.password_purm2 = os.getenv("CHEP_PASSWORD_PURM2", "12345")
         self.email_purm3 = os.getenv("CHEP_EMAIL_PURM3", "gabrielpeixoto@purm3.com.br")
-        self.password_purm3 = os.getenv("CHEP_PASSWORD_PURM3", "")
+        self.password_purm3 = os.getenv("CHEP_PASSWORD_PURM3", "12345")
 
     def log(self, message: str):
         msg_str = str(message)
@@ -176,15 +176,18 @@ class CHEPBotEngine:
                 await email_input.press("Tab")
 
                 # 2. Preenche a senha
-                pass_input = page.get_by_role('textbox', name='Password')
+                pass_input = page.locator("input[name='password'], input[type='password']").first
                 if not await pass_input.is_visible(timeout=1500):
-                    pass_input = page.locator("input[type='password'], input[name='password'], input#password").first
+                    pass_input = page.get_by_role('textbox', name='Password')
 
                 if await pass_input.is_visible(timeout=3000):
                     if not password:
-                        self.log(f"⚠️ ATENÇÃO: A senha do perfil {profile_name} está VAZIA no arquivo .env! Verifique as variáveis de ambiente.")
-                    await pass_input.click()
+                        self.log(f"⚠️ ATENÇÃO: A senha do perfil {profile_name} está VAZIA! Defina CHEP_PASSWORD_{'PURM3' if 'PURM3' in profile_name else 'PURM2'} no Render.")
+                    
+                    # Foca no input diretamente para evitar clicar no ícone do olho
+                    await pass_input.focus()
                     await pass_input.fill("")
+                    await pass_input.fill(password)
                     await pass_input.press_sequentially(password, delay=30)
                     await pass_input.press("Tab")
                     await asyncio.sleep(1)
