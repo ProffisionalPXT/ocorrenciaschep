@@ -131,17 +131,44 @@ class CHEPBotEngine:
         await self.ensure_user_is_logged_in(page, profile_name)
         return page
 
+    async def is_on_login_page(self, page: Page) -> bool:
+        """Verifica rigorosamente se a página atual é a tela de login/autenticação"""
+        url = page.url.lower()
+        if any(k in url for k in ["login", "signin", "auth0", "okta", "b2c", "auth", "authorize"]):
+            return True
+            
+        try:
+            if await page.locator("text=/log in|welcome|continue with okta/i").first.is_visible(timeout=1000):
+                return True
+        except:
+            pass
+
+        try:
+            if await page.get_by_role('textbox', name='Email address').is_visible(timeout=1000):
+                return True
+        except:
+            pass
+
+        try:
+            email_field = page.locator("input[name='username'], input[name='identifier'], input[name='email'], input[type='email'], input#username").first
+            if await email_field.is_visible(timeout=1000):
+                return True
+        except:
+            pass
+
+        return False
+
     async def auto_login_if_needed(self, page: Page, profile_name: str = "BR__LH_PURM2"):
         """Navegação e preenchimento de login com suporte Okta/Auth0/CHEP"""
         try:
             email, password = self.get_credentials_for_profile(profile_name)
             
             # 1. Procura o campo de e-mail com seletores abrangentes
-            email_input = page.locator("input[name='identifier'], input[placeholder*='e-mail'], input[placeholder*='Your e-mail'], input[name='login'], input#login, input#username, input[type='email']").first
-            if not await email_input.is_visible(timeout=2000):
-                email_input = page.get_by_role('textbox', name='Email address')
+            email_input = page.get_by_role('textbox', name='Email address')
+            if not await email_input.is_visible(timeout=1500):
+                email_input = page.locator("input[name='username'], input[name='identifier'], input[name='email'], input[placeholder*='e-mail'], input[placeholder*='Your e-mail'], input[name='login'], input#login, input#username, input[type='email'], input[type='text']").first
 
-            if await email_input.is_visible(timeout=2000):
+            if await email_input.is_visible(timeout=3000):
                 self.log(f"🔑 Tela de login identificada! Efetuando login para {profile_name} ({email})...")
                 await email_input.click()
                 await email_input.fill("")
@@ -149,18 +176,9 @@ class CHEPBotEngine:
                 await email_input.press("Tab")
 
                 # 2. Preenche a senha
-                pass_input = page.locator("input[type='password'], input[name='password'], input#password").first
-                if not await pass_input.is_visible(timeout=2000):
-                    pass_input = page.get_by_role('textbox', name='Password')
-
-                # Se a senha não estiver visível na mesma tela após aguardar, clica em Continue (fluxo de 2 etapas)
-                if not await pass_input.is_visible(timeout=1000):
-                    btn_continue = page.locator("button:has-text('Continue'), input[value='Continue'], button:has-text('Next')").first
-                    if await btn_continue.is_visible(timeout=1500):
-                        await btn_continue.click()
-                        await asyncio.sleep(2)
-                        if not await pass_input.is_visible(timeout=2000):
-                            pass_input = page.locator("input[type='password'], input[name='password'], input#password").first
+                pass_input = page.get_by_role('textbox', name='Password')
+                if not await pass_input.is_visible(timeout=1500):
+                    pass_input = page.locator("input[type='password'], input[name='password'], input#password").first
 
                 if await pass_input.is_visible(timeout=3000):
                     if not password:
@@ -177,8 +195,8 @@ class CHEPBotEngine:
                 await self.save_debug_screenshot(page, "debug_01_login", "Print 1 - Login Preenchido")
                 
                 # 3. Submete o formulário clicando em Continue ou Submit
-                btn_submit = page.locator("button:has-text('Continue'), button:has-text('Sign in'), button:has-text('Log in'), button[type='submit'], input[type='submit']").first
-                if await btn_submit.is_visible(timeout=1500):
+                btn_submit = page.locator("button:has-text('Continue'), input[value='Continue'], button:has-text('Sign in'), button:has-text('Log in'), button[type='submit'], input[type='submit']").first
+                if await btn_submit.is_visible(timeout=2000):
                     await btn_submit.click()
                 elif await pass_input.is_visible():
                     await pass_input.press("Enter")
@@ -188,48 +206,36 @@ class CHEPBotEngine:
             # Print 2: Após Autenticar / Home
             await self.save_debug_screenshot(page, "debug_02_home", "Print 2 - Pós Login / Home")
 
-            # 3. Se caiu na HOME (/home), clica no card "Gestão de carga" para ir para /bluechat
-            if "home" in page.url:
-                self.log("🏠 Detectado página HOME (/home). Clicando em 'Gestão de carga'...")
-                card_gestao = page.locator("div:has-text('Gestão de carga'), a:has-text('Gestão de carga'), .cardWidget-header").first
-                if await card_gestao.is_visible(timeout=3000):
-                    await card_gestao.click()
-                    await asyncio.sleep(2)
-                    # Print 3: Navegação para Gestão de Carga
-                    await self.save_debug_screenshot(page, "debug_03_gestao_carga", "Print 3 - Gestão de Carga")
-
         except Exception as e:
             self.log(f"⚠️ Aviso no processo de login: {e}")
 
     async def ensure_user_is_logged_in(self, page: Page, profile_name: str = "BR__LH_PURM2") -> bool:
-        await asyncio.sleep(1)
+        await asyncio.sleep(1.5)
         target_email, _ = self.get_credentials_for_profile(profile_name)
         
-        email_input = page.locator("input[placeholder*='e-mail'], input[placeholder*='Your e-mail'], input[name='login'], input#login, input#username, input[type='email']").first
-        
-        is_login_screen = False
-        try:
-            if await email_input.is_visible(timeout=3000):
-                is_login_screen = True
-        except:
-            pass
-
-        if not is_login_screen and ("auth0.com" in page.url or "login" in page.url or "signin" in page.url or "okta" in page.url):
-            is_login_screen = True
-            
-        if is_login_screen:
+        # 1. Se estiver na tela de login, executa auto_login_if_needed
+        if await self.is_on_login_page(page):
             self.log(f"🔐 Autenticando {profile_name} ({target_email})...")
             await self.auto_login_if_needed(page, profile_name)
             await asyncio.sleep(3)
             
-            for wait_sec in range(1, 20):
-                if "auth0.com" not in page.url and "login" not in page.url and "signin" not in page.url and "okta" not in page.url:
+            for wait_sec in range(1, 25):
+                if not await self.is_on_login_page(page):
                     self.log(f"🟢 Login concluído para {profile_name}!")
-                    return True
+                    break
                 await asyncio.sleep(1)
 
-            self.log(f"❌ Tela de login ainda ativa para {profile_name}. Verifique a senha no arquivo .env!")
-            return False
+        # 2. Se a página atual for a HOME (/home), acessa a 'Gestão de carga'
+        if "home" in page.url or await page.locator("div:has-text('Gestão de carga')").first.is_visible(timeout=2000):
+            self.log("🏠 Posição atual: Tela HOME. Acessando 'Gestão de carga'...")
+            card_gestao = page.locator("div:has-text('Gestão de carga'), a:has-text('Gestão de carga'), .cardWidget-header").first
+            if await card_gestao.is_visible(timeout=3000):
+                await card_gestao.click()
+                await asyncio.sleep(2.5)
+                await self.save_debug_screenshot(page, "debug_03_gestao_carga", "Print 3 - Gestão de Carga")
+            else:
+                await page.goto("https://cmaweb.chep.com/bluechat", wait_until="domcontentloaded")
+                await asyncio.sleep(2)
 
         return True
 
@@ -265,32 +271,23 @@ class CHEPBotEngine:
             return False
 
         try:
-            self.log(f"\n🔍 [1/6] Pesquisando a Delivery #{delivery_clean} sob a conta {profile_name}...")
-            
-            if "bluechat" not in page.url:
-                await page.goto("https://cmaweb.chep.com/bluechat", wait_until="networkidle", timeout=60000)
-                await asyncio.sleep(1)
-
-            # Sempre checar se caiu na tela de login
-            await self.ensure_user_is_logged_in(page, profile_name)
+            self.log(f"\n🔐 [Passo 1/2] Verificando Autenticação e Gestão de Carga para a conta {profile_name}...")
             
             if "bluechat" not in page.url and "home" not in page.url:
-                await page.goto("https://cmaweb.chep.com/bluechat", wait_until="networkidle", timeout=60000)
-                await asyncio.sleep(1)
+                await page.goto("https://cmaweb.chep.com/bluechat", wait_until="domcontentloaded", timeout=60000)
+                await asyncio.sleep(1.5)
 
-            # Print 2: Após Login / Redirecionamento
-            await self.save_debug_screenshot(page, "debug_02_home", "Print 2 - Tela Pós-Login / CMA")
+            # Sempre garante o Login e a entrada na Gestão de Carga ANTES de pesquisar
+            await self.ensure_user_is_logged_in(page, profile_name)
 
-            # 0. CARD HEADER (se estiver na home)
             card_header = page.locator('.cardWidget-header').first
             if await card_header.is_visible(timeout=1500):
                 await card_header.click()
-                await asyncio.sleep(1.5)
-                # Print 3: Após clicar no card da Home
+                await asyncio.sleep(2)
                 await self.save_debug_screenshot(page, "debug_03_gestao_carga", "Print 3 - Gestão de Carga")
 
-            # 1. FILTRO DE ENTREGA + ENTER + APPLY
-            self.log(f"   -> Preenchendo '{delivery_clean}' no campo 'Número de entrega'...")
+            # Apenas após Login e Gestão de Carga, inicia a pesquisa da Delivery
+            self.log(f"\n🔍 [Passo 2/2] Pesquisando a Delivery #{delivery_clean} na Gestão de Carga...")
             
             deliv_input = page.locator('app-data-filter-multi-string-input').filter(has_text='Número de entrega').get_by_role('textbox')
             if not await deliv_input.is_visible(timeout=2000):
