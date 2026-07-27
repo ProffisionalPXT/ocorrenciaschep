@@ -388,6 +388,7 @@ class CHEPBotEngine:
 
                 # 2. SELEÇÃO DO PROCESSO* (Aguardar Visibilidade + Clique Forçado + Teclado + Enter)
                 try:
+                    await page.wait_for_timeout(3000)  # Aguarda 3 segundos para o dropdown carregar na nuvem
                     proc_elem = modal.locator("ng-select, [name='process'], .ng-select-container").first
                     await proc_elem.wait_for(state="visible", timeout=10000)
                     await proc_elem.click(force=True)
@@ -407,7 +408,7 @@ class CHEPBotEngine:
                 except Exception as e_proc:
                     self.log(f"   ⚠️ Aviso ao preencher Processo: {e_proc}")
 
-                await asyncio.sleep(1)
+                await page.wait_for_timeout(2000)  # Aguarda 2 segundos entre as seleções
 
                 # 3. SELEÇÃO DO TIPO DE NOTA* (Aguardar Visibilidade + Clique Forçado + Teclado + Enter)
                 try:
