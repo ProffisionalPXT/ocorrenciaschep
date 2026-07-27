@@ -46,6 +46,17 @@ class CHEPBotEngine:
             msg_str = msg_str.split("\n")[0]
         self.raw_log_cb(msg_str)
 
+    async def save_debug_screenshot(self, page: Page, name: str, label: str):
+        try:
+            shots_dir = os.path.join(os.path.dirname(__file__), "static")
+            os.makedirs(shots_dir, exist_ok=True)
+            fname = f"{name}.png"
+            shot_file = os.path.join(shots_dir, fname)
+            await page.screenshot(path=shot_file)
+            self.log(f"📸 [{label}]: <a href='/static/{fname}' target='_blank' style='color:#38bdf8; font-weight:bold; text-decoration:underline;'>🔍 Visualizar {name}.png</a>")
+        except Exception as e:
+            self.log(f"⚠️ Erro ao salvar print {name}: {e}")
+
     def get_credentials_for_profile(self, profile_name: str):
         self.load_env_vars()
         if "PURM3" in profile_name.upper():
@@ -150,6 +161,9 @@ class CHEPBotEngine:
                     await pass_input.click()
                     await pass_input.fill(password)
                     
+                    # Print 1: Login Preenchido
+                    await self.save_debug_screenshot(page, "debug_01_login", "Print 1 - Login Preenchido")
+                    
                     # Botão Entrar/Submit
                     btn_submit = page.locator("button:has-text('Continue'), button:has-text('Sign in'), button:has-text('Log in'), button[type='submit'], input[type='submit']").first
                     if await btn_submit.is_visible(timeout=1500):
@@ -159,6 +173,9 @@ class CHEPBotEngine:
                     
                     await asyncio.sleep(4)
 
+            # Print 2: Após Autenticar / Home
+            await self.save_debug_screenshot(page, "debug_02_home", "Print 2 - Pós Login / Home")
+
             # 3. Se caiu na HOME (/home), clica no card "Gestão de carga" para ir para /bluechat
             if "home" in page.url:
                 self.log("🏠 Detectado página HOME (/home). Clicando em 'Gestão de carga'...")
@@ -166,12 +183,11 @@ class CHEPBotEngine:
                 if await card_gestao.is_visible(timeout=3000):
                     await card_gestao.click()
                     await asyncio.sleep(2)
+                    # Print 3: Navegação para Gestão de Carga
+                    await self.save_debug_screenshot(page, "debug_03_gestao_carga", "Print 3 - Gestão de Carga")
 
         except Exception as e:
             self.log(f"⚠️ Aviso no processo de login: {e}")
-
-        except Exception as e:
-            self.log(f"⚠️ Aviso no login: {e}")
 
     async def ensure_user_is_logged_in(self, page: Page, profile_name: str = "BR__LH_PURM2") -> bool:
         await asyncio.sleep(1)
@@ -279,6 +295,9 @@ class CHEPBotEngine:
 
                 if await btn_apply.is_visible(timeout=2000):
                     await btn_apply.click(force=True)
+                    await asyncio.sleep(3)
+                    # Print 4: Resultado da Pesquisa da Delivery
+                    await self.save_debug_screenshot(page, "debug_04_resultado_pesquisa", "Print 4 - Resultado Pesquisa Delivery")
                     self.log("   🟢 [OK] Clicado no botão Apply!")
                     await asyncio.sleep(2.5)
 
