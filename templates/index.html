@@ -387,14 +387,18 @@
                 <div id="panel_title_linha" style="font-size: 12px; font-weight: 700; color: var(--accent-blue); margin-bottom: 6px;">⚙️ Gerador de Criação de Linhas:</div>
                 
                 <div id="linha_subfields">
-                  <div class="criacao-linha-grid">
+                  <div class="criacao-linha-grid" style="grid-template-columns: 1fr 1fr 1fr;">
                     <div>
                       <label>Qtd Paletes:</label>
                       <input type="number" id="cl_paletes_qtd" value="125" oninput="updateLinhaPreview()">
                     </div>
                     <div>
-                      <label>Qtd NFs Carregadas:</label>
-                      <input type="number" id="cl_nfs_qtd" value="2" oninput="updateLinhaPreview()">
+                      <label>Qtd NFs:</label>
+                      <input type="number" id="cl_nfs_qtd" value="2" oninput="updateLinhasDefault(); updateLinhaPreview()">
+                    </div>
+                    <div>
+                      <label>Qtd Linhas:</label>
+                      <input type="number" id="cl_linhas_qtd" value="1" oninput="updateLinhaPreview()">
                     </div>
                   </div>
 
@@ -555,14 +559,18 @@
       }
     }
 
+    function updateLinhasDefault() {
+      const nfs = parseInt(document.getElementById('cl_nfs_qtd').value) || 2;
+      document.getElementById('cl_linhas_qtd').value = Math.max(1, nfs - 1);
+    }
+
     function updateLinhaPreview() {
       const sel = document.getElementById('msg_select').value;
       
       if (sel === 'criacao_de_linha_geral') {
         const paletes = parseInt(document.getElementById('cl_paletes_qtd').value) || 125;
         const nfs = parseInt(document.getElementById('cl_nfs_qtd').value) || 2;
-        // Calcula sempre 1 linha a menos do total de NFs
-        const linhasPedidas = Math.max(1, nfs - 1);
+        const linhasPedidas = parseInt(document.getElementById('cl_linhas_qtd').value) || 1;
         
         const texto = `Veiculo carregado com ${paletes} paletes e ${nfs} NF.\n\nFavor gera ${linhasPedidas} linha.`;
         document.getElementById('location_text').value = texto;
