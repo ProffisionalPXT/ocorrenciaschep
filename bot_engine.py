@@ -146,32 +146,37 @@ class CHEPBotEngine:
                 await email_input.click()
                 await email_input.fill(email)
                 
-                # Procura botão Continue / Next se for tela de 2 etapas (Okta)
-                btn_continue = page.locator("button:has-text('Continue'), input[value='Continue'], button:has-text('Next')").first
-                if await btn_continue.is_visible(timeout=1500):
-                    await btn_continue.click()
-                    await asyncio.sleep(2)
-
                 # 2. Preenche a senha
                 pass_input = page.locator("input[type='password'], input[name='password'], input#password").first
-                if not await pass_input.is_visible(timeout=2000):
+                if not await pass_input.is_visible(timeout=1500):
                     pass_input = page.get_by_role('textbox', name='Password')
+
+                # Se a senha não estiver visível na mesma tela, clica em Continue primeiro (fluxo 2 etapas)
+                if not await pass_input.is_visible(timeout=1000):
+                    btn_continue = page.locator("button:has-text('Continue'), input[value='Continue'], button:has-text('Next')").first
+                    if await btn_continue.is_visible(timeout=1500):
+                        await btn_continue.click()
+                        await asyncio.sleep(2)
+                        if not await pass_input.is_visible(timeout=2000):
+                            pass_input = page.locator("input[type='password'], input[name='password'], input#password").first
 
                 if await pass_input.is_visible(timeout=3000):
                     await pass_input.click()
                     await pass_input.fill(password)
-                    
-                    # Print 1: Login Preenchido
-                    await self.save_debug_screenshot(page, "debug_01_login", "Print 1 - Login Preenchido")
-                    
-                    # Botão Entrar/Submit
-                    btn_submit = page.locator("button:has-text('Continue'), button:has-text('Sign in'), button:has-text('Log in'), button[type='submit'], input[type='submit']").first
-                    if await btn_submit.is_visible(timeout=1500):
-                        await btn_submit.click()
-                    else:
-                        await pass_input.press("Enter")
-                    
-                    await asyncio.sleep(4)
+                else:
+                    self.log("⚠️ Campo de senha não encontrado ou em branco!")
+
+                # Print 1: Login Preenchido (antes de submeter)
+                await self.save_debug_screenshot(page, "debug_01_login", "Print 1 - Login Preenchido")
+                
+                # 3. Submete o formulário clicando em Continue ou Submit
+                btn_submit = page.locator("button:has-text('Continue'), button:has-text('Sign in'), button:has-text('Log in'), button[type='submit'], input[type='submit']").first
+                if await btn_submit.is_visible(timeout=1500):
+                    await btn_submit.click()
+                elif await pass_input.is_visible():
+                    await pass_input.press("Enter")
+                
+                await asyncio.sleep(5)
 
             # Print 2: Após Autenticar / Home
             await self.save_debug_screenshot(page, "debug_02_home", "Print 2 - Pós Login / Home")
