@@ -259,6 +259,9 @@ class CHEPBotEngine:
                 await page.goto("https://cmaweb.chep.com/bluechat", wait_until="networkidle", timeout=60000)
                 await asyncio.sleep(1)
 
+            # Print 1: Tela inicial assim que carrega
+            await self.save_debug_screenshot(page, "debug_01_login", "Print 1 - Tela Inicial / Login")
+
             # Sempre checar se caiu na tela de login
             await self.ensure_user_is_logged_in(page, profile_name)
             
@@ -266,11 +269,16 @@ class CHEPBotEngine:
                 await page.goto("https://cmaweb.chep.com/bluechat", wait_until="networkidle", timeout=60000)
                 await asyncio.sleep(1)
 
+            # Print 2: Após Login / Redirecionamento
+            await self.save_debug_screenshot(page, "debug_02_home", "Print 2 - Tela Pós-Login / CMA")
+
             # 0. CARD HEADER (se estiver na home)
             card_header = page.locator('.cardWidget-header').first
             if await card_header.is_visible(timeout=1500):
                 await card_header.click()
                 await asyncio.sleep(1.5)
+                # Print 3: Após clicar no card da Home
+                await self.save_debug_screenshot(page, "debug_03_gestao_carga", "Print 3 - Gestão de Carga")
 
             # 1. FILTRO DE ENTREGA + ENTER + APPLY
             self.log(f"   -> Preenchendo '{delivery_clean}' no campo 'Número de entrega'...")
