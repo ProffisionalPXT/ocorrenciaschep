@@ -334,25 +334,35 @@ class CHEPBotEngine:
                     pass
 
                 if not is_modal_already_open:
-                    create_note_btn = page.get_by_role('button', name='Criar uma nota  ')
+                    self.log("   👉 Selecionando a Delivery na tabela de resultados...")
+                    try:
+                        row_chk = page.locator(".ag-selection-checkbox, .ag-row-first input[type='checkbox'], input[type='checkbox']").first
+                        if await row_chk.is_visible(timeout=3000):
+                            await row_chk.click(force=True)
+                            await asyncio.sleep(1)
+                        else:
+                            first_row = page.locator(".ag-row-first, tbody tr").first
+                            if await first_row.is_visible(timeout=2000):
+                                await first_row.click(force=True)
+                                await asyncio.sleep(1)
+                    except Exception as e_row:
+                        self.log(f"   ⚠️ Aviso ao selecionar linha da tabela: {e_row}")
+
+                    create_note_btn = page.locator("button:has-text('Criar uma nota'), button:has-text('CRIAR UMA NOTA'), button:has-text('Create note')").first
                     if not await create_note_btn.is_visible(timeout=2500):
-                        create_note_btn = page.get_by_role("button", name="Criar uma nota")
-                    if not await create_note_btn.is_visible(timeout=2500):
-                        create_note_btn = page.locator("button:has-text('CRIAR UMA NOTA'), button:has-text('Criar uma nota')").last
+                        create_note_btn = page.get_by_role('button', name='Criar uma nota')
+
+                    # Print 5: Antes de clicar no botão Criar uma Nota
+                    await self.save_debug_screenshot(page, "debug_05_botao_criar_nota", "Print 5 - Botão Criar Nota")
                     
                     try:
-                        await create_note_btn.click(timeout=15000)
+                        await create_note_btn.click(timeout=8000)
                     except Exception:
                         try:
-                            await create_note_btn.click(force=True, timeout=15000)
+                            await create_note_btn.click(force=True, timeout=8000)
                         except Exception as click_err:
                             self.log(f"   ❌ Falha ao clicar no botão 'Criar uma nota': {click_err}")
-                            shots_dir = os.path.join(os.path.dirname(__file__), "screenshots")
-                            os.makedirs(shots_dir, exist_ok=True)
-                            fname = f"erro_modal_{delivery_clean}_{int(time.time())}.png"
-                            shot_file = os.path.join(shots_dir, fname)
-                            await page.screenshot(path=shot_file)
-                            self.log(f"📸 Print do erro de clique: <a href='/screenshots/{fname}' target='_blank' style='color:#ef4444; font-weight:bold; text-decoration:underline;'>Visualizar Tela do Erro</a>")
+                            await self.save_debug_screenshot(page, "debug_erro_criar_nota", "Print Erro - Botão Criar Nota")
                             raise click_err
                     
                     await asyncio.sleep(2.5)
