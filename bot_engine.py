@@ -170,17 +170,25 @@ class CHEPBotEngine:
         await asyncio.sleep(1)
         target_email, _ = self.get_credentials_for_profile(profile_name)
         
-        if "auth0.com" in page.url or "login" in page.url or "signin" in page.url:
+        email_input = page.locator("input[placeholder*='e-mail'], input[placeholder*='Your e-mail'], input[name='login'], input#login, input#username, input[type='email']").first
+        
+        is_login_screen = False
+        try:
+            if await email_input.is_visible(timeout=3000):
+                is_login_screen = True
+        except:
+            pass
+
+        if not is_login_screen and ("auth0.com" in page.url or "login" in page.url or "signin" in page.url or "okta" in page.url):
+            is_login_screen = True
+            
+        if is_login_screen:
             self.log(f"🔐 Autenticando {profile_name} ({target_email})...")
             await self.auto_login_if_needed(page, profile_name)
             await asyncio.sleep(3)
             
-            if "auth0.com" not in page.url and "login" not in page.url and "signin" not in page.url:
-                self.log(f"🟢 Login realizado com sucesso para {profile_name}!")
-                return True
-
             for wait_sec in range(1, 20):
-                if "auth0.com" not in page.url and "login" not in page.url and "signin" not in page.url:
+                if "auth0.com" not in page.url and "login" not in page.url and "signin" not in page.url and "okta" not in page.url:
                     self.log(f"🟢 Login concluído para {profile_name}!")
                     return True
                 await asyncio.sleep(1)
@@ -225,8 +233,10 @@ class CHEPBotEngine:
                 await page.goto("https://cmaweb.chep.com/bluechat", wait_until="networkidle", timeout=60000)
                 await asyncio.sleep(1)
 
-            if "auth0.com" in page.url or "login" in page.url:
-                await self.ensure_user_is_logged_in(page, profile_name)
+            # Sempre checar se caiu na tela de login
+            await self.ensure_user_is_logged_in(page, profile_name)
+            
+            if "bluechat" not in page.url:
                 await page.goto("https://cmaweb.chep.com/bluechat", wait_until="networkidle", timeout=60000)
                 await asyncio.sleep(1)
 
