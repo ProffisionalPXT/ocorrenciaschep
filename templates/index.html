@@ -444,11 +444,8 @@
             </div>
           </div>
 
-          <!-- BOTÕES DE AÇÃO (TESTE E EXECUÇÃO REAL) -->
-          
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
-            <button type="button" class="btn-submit" style="background-color: #f59e0b; color: white;" onclick="submitCustomForm(true)">🧪 SIMULAR E TESTAR (NÃO SALVA)</button>
-            <button type="button" class="btn-submit real-mode" style="background-color: var(--accent-green); color: white;" onclick="submitCustomForm(false)">⚡ CRIAR OCORRÊNCIA E SALVAR</button>
+          <div style="display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 15px;">
+            <button type="button" class="btn-submit real-mode" style="background-color: var(--accent-green); color: white;" onclick="submitCustomForm()">⚡ CRIAR OCORRÊNCIA (Depende da sua Aprovação Visual)</button>
           </div>
         </form>
       </div>
@@ -698,7 +695,7 @@
       }
     }
 
-    function submitCustomForm(isTestMode) {
+    function submitCustomForm() {
       const form = document.getElementById('occForm');
       const deliveryVal = document.getElementById('delivery').value.trim();
       
@@ -715,7 +712,6 @@
       formData.append('include_location', document.getElementById('chk_location').checked);
       formData.append('include_contact', document.getElementById('chk_contact').checked);
       formData.append('coleta_dia', isColetaDia);
-      formData.append('test_mode', isTestMode);
 
       // Atualiza a interface imediatamente se for Coleta do Dia
       if (isColetaDia && deliveryVal) {
@@ -750,6 +746,52 @@
       toggleLocation();
       fetchLogs();
     });
+
+    // --- Lógica de Aprovação Visual ---
+    function fetchApprovalStatus() {
+      fetch('/api/approval_status')
+        .then(res => res.json())
+        .then(data => {
+          const modal = document.getElementById('approvalModal');
+          if (data.pending) {
+            document.getElementById('approvalDeliveryText').innerText = data.delivery;
+            document.getElementById('approvalImage').src = data.image_url + "?t=" + new Date().getTime();
+            modal.style.display = 'flex';
+          } else {
+            modal.style.display = 'none';
+          }
+        })
+        .catch(err => console.error(err));
+    }
+    
+    // Checa aprovação a cada 3 segundos
+    setInterval(fetchApprovalStatus, 3000);
+
+    function resolveApproval(action) {
+      document.getElementById('approvalModal').style.display = 'none';
+      fetch('/api/resolve_approval', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action })
+      }).then(res => res.json()).then(data => {
+        alert(data.message);
+        fetchLogs();
+      });
+    }
   </script>
+
+  <!-- Modal de Aprovação Visual -->
+  <div id="approvalModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(5px); z-index: 9999; flex-direction: column; align-items: center; justify-content: center; padding: 20px;">
+    <div style="background: var(--bg-card); border-radius: 12px; padding: 20px; max-width: 900px; width: 100%; border: 1px solid rgba(255, 255, 255, 0.1); text-align: center; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.5);">
+      <h2 style="color: white; margin-bottom: 10px;">Aprovação Visual - Delivery <span id="approvalDeliveryText"></span></h2>
+      <p style="color: #94a3b8; margin-bottom: 20px;">Verifique os dados preenchidos abaixo. Você tem 5 minutos para aprovar ou cancelar.</p>
+      <img id="approvalImage" src="" style="width: 100%; border-radius: 8px; margin-bottom: 20px; border: 1px solid #334155;">
+      
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+        <button onclick="resolveApproval('cancel')" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.5); padding: 15px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; transition: all 0.2s;">❌ Cancelar e Fechar</button>
+        <button onclick="resolveApproval('approve')" style="background: var(--accent-green); color: white; border: none; padding: 15px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; transition: all 0.2s;">✅ Aprovar e Salvar (Desativado para Teste)</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

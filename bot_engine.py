@@ -16,6 +16,7 @@ class CHEPBotEngine:
         self.playwright = None
         self.contexts: Dict[str, BrowserContext] = {}
         self.pages: Dict[str, Page] = {}
+        self.approval_state = {"event": None, "action": None, "image_url": None, "delivery": None}
         self.load_env_vars()
 
     @property
@@ -208,6 +209,10 @@ class CHEPBotEngine:
         except Exception:
             pass
 
+    async def set_approval_event(self):
+        if self.approval_state and self.approval_state.get("event"):
+            self.approval_state["event"].set()
+
     async def create_occurrence(
         self,
         delivery_number: str,
@@ -216,8 +221,7 @@ class CHEPBotEngine:
         priority: str = "HIGH",
         process_name: str = "LATAM - Brazil - Logistics",
         profile_name: str = "BR__LH_PURM2",
-        attachment_path: Optional[str] = None,
-        test_mode: bool = False
+        attachment_path: Optional[str] = None
     ) -> bool:
         """Processo retornado para o fluxo original; preenchimento de nota com delay de carregamento e foco correto"""
         page = await self.get_browser_for_profile(profile_name)
@@ -482,32 +486,53 @@ class CHEPBotEngine:
             else:
                 self.log("📎 [5/6] Nenhum anexo de foto pendente para enviar.")
 
-            # MODO TESTE (SEGURANÇA TOTAL: NENHUM CLIQUE EM SALVAR/CRIAR PEDIDO)
-            if test_mode:
-                self.log("\n🧪 [MODO TESTE ATIVO] Formulário preenchido com sucesso!")
-                shots_dir = os.path.join(os.path.dirname(__file__), "screenshots")
-                os.makedirs(shots_dir, exist_ok=True)
-                fname = f"teste_{delivery_clean}_{int(time.time())}.png"
-                shot_file = os.path.join(shots_dir, fname)
-                await page.screenshot(path=shot_file)
-                self.log(f"📸 Print de validação do teste: <a href='/screenshots/{fname}' target='_blank' style='color:#38bdf8; font-weight:bold; text-decoration:underline;'>🔍 Visualizar Print da Tela (#{delivery_clean})</a>")
-                self.log("⛔ [SEGURANÇA] O botão 'CRIAR PEDIDO(S)' FOI OMITIDO e NÃO SERÁ CLICADO no Modo Teste!")
-                return True
+            # --- MODO APROVAÇÃO VISUAL ---
+            shots_dir = os.path.join(os.path.dirname(__file__), "static")
+            os.makedirs(shots_dir, exist_ok=True)
+            fname = f"preview_{delivery_clean}_{int(time.time())}.png"
+            shot_file = os.path.join(shots_dir, fname)
+            await page.screenshot(path=shot_file)
+            
+            self.log(f"⏳ Aguardando aprovação visual no Painel: /static/{fname}")
+            
+            approval_event = asyncio.Event()
+            self.approval_state = {
+                "event": approval_event,
+                "action": None,
+                "image_url": f"/static/{fname}",
+                "delivery": delivery_clean
+            }
+            
+            try:
+                await asyncio.wait_for(approval_event.wait(), timeout=300)
+                action = self.approval_state.get("action")
+            except asyncio.TimeoutError:
+                self.log("⚠️ Tempo limite de 5 minutos excedido! Cancelando operação.")
+                action = "cancel"
+            finally:
+                self.approval_state = {"event": None, "action": None, "image_url": None, "delivery": None}
 
-            # BOTÃO SALVAR / CRIAR PEDIDO(S) (EXECUTADO APENAS EM MODO REAL)
-            self.log("💾 [6/6] Clicando no botão 'CRIAR PEDIDO(S)'...")
-            save_btn = modal.locator("button:has-text('CRIAR PEDIDO(S)'), button:has-text('CRIAR PEDIDO'), button:has-text('Salvar'), button:has-text('CRIAR NOTA')").first
-            if not await save_btn.is_visible(timeout=2000):
-                save_btn = page.locator("button:has-text('CRIAR PEDIDO(S)'), button:has-text('CRIAR PEDIDO')").first
+            if action == "approve":
+                self.log("💾 [6/6] Usuário aprovou! Clicando no botão 'CRIAR PEDIDO(S)'...")
+                save_btn = modal.locator("button:has-text('CRIAR PEDIDO(S)'), button:has-text('CRIAR PEDIDO'), button:has-text('Salvar'), button:has-text('CRIAR NOTA')").first
+                if not await save_btn.is_visible(timeout=2000):
+                    save_btn = page.locator("button:has-text('CRIAR PEDIDO(S)'), button:has-text('CRIAR PEDIDO')").first
 
-            if await save_btn.is_visible(timeout=3000):
-                await save_btn.click(force=True)
-                await asyncio.sleep(2.5)
-                self.log(f"✅ Ocorrência '{note_type}' criada e enviada com sucesso no CHEP!")
-                return True
+                if await save_btn.is_visible(timeout=3000):
+                    # BACKUP/DESATIVADO: Para testes seguros (não clica em enviar nem se aprovar)
+                    # await save_btn.click(force=True)
+                    # await asyncio.sleep(2.5)
+                    self.log(f"✅ Ocorrência '{note_type}' SIMULADA COMO criada com sucesso no CHEP!")
+                    return True
+                else:
+                    self.log("⚠️ Botão 'CRIAR PEDIDO(S)' não encontrado na tela!")
             else:
-                self.log("⚠️ Botão 'CRIAR PEDIDO(S)' não encontrado na tela!")
-
+                self.log("⛔ Ocorrência rejeitada ou cancelada. Fechando a modal.")
+                close_btn = modal.locator("button:has-text('Cancelar'), button:has-text('Close'), button[aria-label='Close'], .close").first
+                if await close_btn.is_visible(timeout=2000):
+                    await close_btn.click(force=True)
+                return False
+                
             return True
 
         except Exception as e:
@@ -519,10 +544,9 @@ class CHEPBotEngine:
         delivery_number: str,
         message_text: str,
         profile_name: str = "BR__LH_PURM2",
-        attachment_path: str = None,
-        test_mode: bool = False
+        attachment_path: str = None
     ) -> str:
-        return await self.create_contact_chep_response(delivery_number, message_text, profile_name, test_mode)
+        return await self.create_contact_chep_response(delivery_number, message_text, profile_name)
 
     async def create_contact_chep_response(
         self,
@@ -579,16 +603,13 @@ class CHEPBotEngine:
             await editor.fill(reply_message)
             await asyncio.sleep(1)
 
-            if test_mode:
-                self.log("🧪 [MODO TESTE 2º SITE] Resposta preenchida! NÃO ENVIADA.")
-                return "TEST_MODE_SUCCESS"
-
-            send_btn = contact_page.locator("button:has(.fa-paper-plane), button:has-text('Send'), button.btn-primary:has(svg)").first
-            if await send_btn.is_visible(timeout=3000):
-                await send_btn.click()
-                await asyncio.sleep(2)
-                self.log("✅ Resposta enviada no Contact CHEP!")
-                return "SUCCESS"
+            # BACKUP/DESATIVADO: Para testes seguros (não clica em enviar)
+            # send_btn = contact_page.locator("button:has(.fa-paper-plane), button:has-text('Send'), button.btn-primary:has(svg)").first
+            # if await send_btn.is_visible(timeout=3000):
+            #     await send_btn.click()
+            #     await asyncio.sleep(2)
+            #     self.log("✅ Resposta enviada no Contact CHEP!")
+            #     return "SUCCESS"
             return "SUCCESS"
 
         except Exception as e:

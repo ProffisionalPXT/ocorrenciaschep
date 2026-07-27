@@ -132,9 +132,6 @@ def execute_occurrence():
 
     def run_tasks():
         append_log(f"Perfil: {profile} | Delivery #{delivery}")
-        if test_mode:
-            append_log("🧪 [MODO TESTE] Preenche tudo, tira print e NÃO salva!")
-
         if include_driver and driver_text:
             append_log("[1/3] Ocorrência de DADOS DO MOTORISTA...")
             fut1 = asyncio.run_coroutine_threadsafe(
@@ -144,8 +141,7 @@ def execute_occurrence():
                     description=driver_text,
                     priority=priority,
                     profile_name=profile,
-                    attachment_path=None,
-                    test_mode=test_mode
+                    attachment_path=None
                 ),
                 async_loop
             )
@@ -162,8 +158,7 @@ def execute_occurrence():
                     description=location_text,
                     priority=priority,
                     profile_name=profile,
-                    attachment_path=attachment_path,
-                    test_mode=test_mode
+                    attachment_path=attachment_path
                 ),
                 async_loop
             )
@@ -178,20 +173,39 @@ def execute_occurrence():
                     delivery_number=delivery,
                     message_text=location_text or driver_text,
                     profile_name=profile,
-                    attachment_path=attachment_path,
-                    test_mode=test_mode
+                    attachment_path=attachment_path
                 ),
                 async_loop
             )
             fut3.result()
 
-        if test_mode:
-            append_log(f"🧪 [MODO TESTE CONCLUÍDO] Nenhum botão de Salvar/Enviar foi clicado na Delivery #{delivery}!")
-        else:
-            append_log(f"🚀 Processo concluído com sucesso para a Delivery #{delivery}!")
+        append_log(f"🚀 Processo concluído com sucesso para a Delivery #{delivery}!")
 
     threading.Thread(target=run_tasks, daemon=True).start()
     return jsonify({"success": True, "message": "Preenchimento iniciado em segundo plano!"})
+
+@app.route("/api/approval_status", methods=["GET"])
+def approval_status():
+    if engine.approval_state and engine.approval_state.get("event") is not None:
+        return jsonify({
+            "pending": True,
+            "image_url": engine.approval_state.get("image_url"),
+            "delivery": engine.approval_state.get("delivery")
+        })
+    return jsonify({"pending": False})
+
+@app.route("/api/resolve_approval", methods=["POST"])
+def resolve_approval():
+    data = request.json or {}
+    action = data.get("action")
+    if engine.approval_state and engine.approval_state.get("event"):
+        engine.approval_state["action"] = action
+        asyncio.run_coroutine_threadsafe(
+            engine.set_approval_event(),
+            async_loop
+        )
+        return jsonify({"success": True, "message": f"Ação '{action}' registrada com sucesso."})
+    return jsonify({"success": False, "error": "Nenhuma aprovação pendente."}), 400
 
 @app.route("/api/check_replies", methods=["POST"])
 def check_replies():
