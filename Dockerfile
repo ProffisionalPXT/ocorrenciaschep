@@ -1,22 +1,13 @@
-# Usar imagem oficial do Python com Playwright pré-instalado
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
-
-# Instalar compiladores C/C++ de build essenciais
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Atualizar pip, setuptools e wheel para garantir rodas binárias pré-compiladas
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-
+# Instalar dependências básicas
 COPY requirements.txt .
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install --only-binary=:all: greenlet || true
+RUN pip install -r requirements.txt
 
 COPY . .
 

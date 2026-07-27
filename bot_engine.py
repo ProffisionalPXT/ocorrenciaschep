@@ -451,18 +451,18 @@ class CHEPBotEngine:
             else:
                 self.log("📎 [5/6] Nenhum anexo de foto pendente para enviar.")
 
-            # MODO TESTE
+            # MODO TESTE (SEGURANÇA TOTAL: NENHUM CLIQUE EM SALVAR/CRIAR PEDIDO)
             if test_mode:
+                self.log("\n🧪 [MODO TESTE ATIVO] Formulário preenchido com sucesso!")
                 shots_dir = os.path.join(os.path.dirname(__file__), "screenshots")
                 os.makedirs(shots_dir, exist_ok=True)
                 shot_file = os.path.join(shots_dir, f"teste_{delivery_clean}_{int(time.time())}.png")
                 await page.screenshot(path=shot_file)
-                self.log(f"\n🧪 [MODO TESTE ATIVO] Todos os campos preenchidos com sucesso sob a conta {profile_name}!")
                 self.log(f"📸 Print da modal salva em: {os.path.basename(shot_file)}")
-                self.log("⛔ O botão 'CRIAR PEDIDO(S)' NÃO foi clicado porque o MODO TESTE está ativado.")
+                self.log("⛔ [SEGURANÇA] O botão 'CRIAR PEDIDO(S)' FOI OMITIDO e NÃO SERÁ CLICADO no Modo Teste!")
                 return True
 
-            # BOTÃO SALVAR / CRIAR PEDIDO(S)
+            # BOTÃO SALVAR / CRIAR PEDIDO(S) (EXECUTADO APENAS EM MODO REAL)
             self.log("💾 [6/6] Clicando no botão 'CRIAR PEDIDO(S)'...")
             save_btn = modal.locator("button:has-text('CRIAR PEDIDO(S)'), button:has-text('CRIAR PEDIDO'), button:has-text('Salvar'), button:has-text('CRIAR NOTA')").first
             if not await save_btn.is_visible(timeout=2000):
