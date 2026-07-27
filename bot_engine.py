@@ -90,17 +90,24 @@ class CHEPBotEngine:
         user_data_dir = os.path.join(os.path.expanduser("~"), f".chep_bot_chrome_profile_{clean_profile_id.lower()}")
         os.makedirs(user_data_dir, exist_ok=True)
 
+        viewport_cfg = {"width": 1920, "height": 1080} if headless else None
+        
+        args = [
+            "--disable-blink-features=AutomationControlled",
+            "--high-dpi-support=1",
+            "--force-device-scale-factor=1"
+        ]
+        if headless:
+            args.append("--window-size=1920,1080")
+        else:
+            args.append("--start-maximized")
+
         context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=headless,
-            viewport=None,
-            no_viewport=True,
-            args=[
-                "--start-maximized",
-                "--disable-blink-features=AutomationControlled",
-                "--high-dpi-support=1",
-                "--force-device-scale-factor=1"
-            ]
+            viewport=viewport_cfg,
+            no_viewport=not headless,
+            args=args
         )
 
         page = context.pages[0] if context.pages else await context.new_page()
