@@ -732,9 +732,11 @@
         body: formData
       }).then(res => res.json()).then(data => {
         alert(data.message);
+        // Só liga o monitoramento DEPOIS que a ocorrência terminou com sucesso
         if (data.auto_monitored) {
           document.getElementById('chk_auto_mon').checked = true;
           if (!monitorTimer) {
+            checkRepliesNow();
             monitorTimer = setInterval(checkRepliesNow, 1200000);
           }
         }

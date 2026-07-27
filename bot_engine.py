@@ -222,13 +222,13 @@ class CHEPBotEngine:
             self.log(f"\n🔍 [1/6] Pesquisando a Delivery #{delivery_clean} sob a conta {profile_name}...")
             
             if "bluechat" not in page.url:
-                await page.goto("https://cmaweb.chep.com/bluechat", wait_until="domcontentloaded")
-                await asyncio.sleep(2)
+                await page.goto("https://cmaweb.chep.com/bluechat", wait_until="networkidle", timeout=60000)
+                await asyncio.sleep(1)
 
             if "auth0.com" in page.url or "login" in page.url:
                 await self.ensure_user_is_logged_in(page, profile_name)
-                await page.goto("https://cmaweb.chep.com/bluechat", wait_until="domcontentloaded")
-                await asyncio.sleep(2)
+                await page.goto("https://cmaweb.chep.com/bluechat", wait_until="networkidle", timeout=60000)
+                await asyncio.sleep(1)
 
             # 0. CARD HEADER (se estiver na home)
             card_header = page.locator('.cardWidget-header').first
