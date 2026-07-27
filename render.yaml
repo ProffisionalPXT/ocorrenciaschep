@@ -1,8 +1,9 @@
 services:
   - type: web
     name: chep-occurrence-bot
-    env: docker
-    dockerfilePath: ./Dockerfile
+    env: python
+    buildCommand: "pip install -r requirements.txt && playwright install chromium && playwright install-deps"
+    startCommand: "gunicorn server:app --bind 0.0.0.0:$PORT --timeout 120"
     envVars:
-      - key: PORT
-        value: 5000
+      - key: PYTHON_VERSION
+        value: 3.10.12
