@@ -545,10 +545,9 @@ class CHEPBotEngine:
                     save_btn = page.locator("button:has-text('CRIAR PEDIDO(S)'), button:has-text('CRIAR PEDIDO')").first
 
                 if await save_btn.is_visible(timeout=3000):
-                    # BACKUP/DESATIVADO: Para testes seguros (não clica em enviar nem se aprovar)
-                    # await save_btn.click(force=True)
-                    # await asyncio.sleep(2.5)
-                    self.log(f"✅ Ocorrência '{note_type}' SIMULADA COMO criada com sucesso no CHEP!")
+                    await save_btn.click(force=True)
+                    await asyncio.sleep(2.5)
+                    self.log(f"✅ Ocorrência '{note_type}' criada com sucesso no CHEP!")
                     return True
                 else:
                     self.log("⚠️ Botão 'CRIAR PEDIDO(S)' não encontrado na tela!")
@@ -629,13 +628,12 @@ class CHEPBotEngine:
             await editor.fill(reply_message)
             await asyncio.sleep(1)
 
-            # BACKUP/DESATIVADO: Para testes seguros (não clica em enviar)
-            # send_btn = contact_page.locator("button:has(.fa-paper-plane), button:has-text('Send'), button.btn-primary:has(svg)").first
-            # if await send_btn.is_visible(timeout=3000):
-            #     await send_btn.click()
-            #     await asyncio.sleep(2)
-            #     self.log("✅ Resposta enviada no Contact CHEP!")
-            #     return "SUCCESS"
+            send_btn = contact_page.locator("button:has(.fa-paper-plane), button:has-text('Send'), button.btn-primary:has(svg)").first
+            if await send_btn.is_visible(timeout=3000):
+                await send_btn.click()
+                await asyncio.sleep(2)
+                self.log("✅ Resposta enviada no Contact CHEP!")
+                return "SUCCESS"
             return "SUCCESS"
 
         except Exception as e:
