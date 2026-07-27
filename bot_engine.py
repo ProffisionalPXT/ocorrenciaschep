@@ -268,15 +268,15 @@ class CHEPBotEngine:
 
                 if not is_modal_already_open:
                     create_note_btn = page.get_by_role('button', name='Criar uma nota  ')
-                    if not await create_note_btn.is_visible(timeout=2000):
+                    if not await create_note_btn.is_visible(timeout=2500):
                         create_note_btn = page.get_by_role("button", name="Criar uma nota")
-                    if not await create_note_btn.is_visible(timeout=2000):
+                    if not await create_note_btn.is_visible(timeout=2500):
                         create_note_btn = page.locator("button:has-text('CRIAR UMA NOTA'), button:has-text('Criar uma nota')").last
                     
                     try:
-                        await create_note_btn.click(timeout=3000)
+                        await create_note_btn.click(timeout=15000)
                     except Exception:
-                        await create_note_btn.click(force=True, timeout=3000)
+                        await create_note_btn.click(force=True, timeout=15000)
                     
                     await asyncio.sleep(2.5)
 
@@ -319,9 +319,9 @@ class CHEPBotEngine:
                         await close_x.click(force=True)
                         await asyncio.sleep(1.0)
                         try:
-                            await create_note_btn.click(timeout=3000)
+                            await create_note_btn.click(timeout=15000)
                         except Exception:
-                            await create_note_btn.click(force=True, timeout=3000)
+                            await create_note_btn.click(force=True, timeout=15000)
                         
                         await asyncio.sleep(2.5)
 
