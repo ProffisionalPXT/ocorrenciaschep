@@ -456,9 +456,10 @@ class CHEPBotEngine:
                 self.log("\n🧪 [MODO TESTE ATIVO] Formulário preenchido com sucesso!")
                 shots_dir = os.path.join(os.path.dirname(__file__), "screenshots")
                 os.makedirs(shots_dir, exist_ok=True)
-                shot_file = os.path.join(shots_dir, f"teste_{delivery_clean}_{int(time.time())}.png")
+                fname = f"teste_{delivery_clean}_{int(time.time())}.png"
+                shot_file = os.path.join(shots_dir, fname)
                 await page.screenshot(path=shot_file)
-                self.log(f"📸 Print da modal salva em: {os.path.basename(shot_file)}")
+                self.log(f"📸 Print de validação do teste: <a href='/screenshots/{fname}' target='_blank' style='color:#38bdf8; font-weight:bold; text-decoration:underline;'>🔍 Visualizar Print da Tela (#{delivery_clean})</a>")
                 self.log("⛔ [SEGURANÇA] O botão 'CRIAR PEDIDO(S)' FOI OMITIDO e NÃO SERÁ CLICADO no Modo Teste!")
                 return True
 

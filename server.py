@@ -5,7 +5,7 @@ import time
 import asyncio
 import threading
 import socket
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from bot_engine import CHEPBotEngine
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -72,6 +72,11 @@ def index():
     daily_deliveries = load_json(DAILY_DELIVERIES_FILE, default=[])
     local_ip = get_local_ip()
     return render_template("index.html", drivers=drivers, messages=messages, daily_deliveries=daily_deliveries, local_ip=local_ip, delivery_statuses=delivery_statuses)
+
+@app.route("/screenshots/<filename>")
+def serve_screenshot(filename):
+    shots_dir = os.path.join(BASE_DIR, "screenshots")
+    return send_from_directory(shots_dir, filename)
 
 @app.route("/api/logs")
 def get_logs():
