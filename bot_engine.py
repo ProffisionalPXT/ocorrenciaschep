@@ -144,14 +144,16 @@ class CHEPBotEngine:
             if await email_input.is_visible(timeout=2000):
                 self.log(f"🔑 Tela de login identificada! Efetuando login para {profile_name} ({email})...")
                 await email_input.click()
+                await email_input.fill("")
                 await email_input.fill(email)
-                
+                await email_input.press("Tab")
+
                 # 2. Preenche a senha
                 pass_input = page.locator("input[type='password'], input[name='password'], input#password").first
-                if not await pass_input.is_visible(timeout=1500):
+                if not await pass_input.is_visible(timeout=2000):
                     pass_input = page.get_by_role('textbox', name='Password')
 
-                # Se a senha não estiver visível na mesma tela, clica em Continue primeiro (fluxo 2 etapas)
+                # Se a senha não estiver visível na mesma tela após aguardar, clica em Continue (fluxo de 2 etapas)
                 if not await pass_input.is_visible(timeout=1000):
                     btn_continue = page.locator("button:has-text('Continue'), input[value='Continue'], button:has-text('Next')").first
                     if await btn_continue.is_visible(timeout=1500):
@@ -161,12 +163,17 @@ class CHEPBotEngine:
                             pass_input = page.locator("input[type='password'], input[name='password'], input#password").first
 
                 if await pass_input.is_visible(timeout=3000):
+                    if not password:
+                        self.log(f"⚠️ ATENÇÃO: A senha do perfil {profile_name} está VAZIA no arquivo .env! Verifique as variáveis de ambiente.")
                     await pass_input.click()
-                    await pass_input.fill(password)
+                    await pass_input.fill("")
+                    await pass_input.press_sequentially(password, delay=30)
+                    await pass_input.press("Tab")
+                    await asyncio.sleep(1)
                 else:
-                    self.log("⚠️ Campo de senha não encontrado ou em branco!")
+                    self.log("⚠️ Campo de senha não encontrado na tela de login!")
 
-                # Print 1: Login Preenchido (antes de submeter)
+                # Print 1: Login Preenchido (com e-mail e senha inseridos)
                 await self.save_debug_screenshot(page, "debug_01_login", "Print 1 - Login Preenchido")
                 
                 # 3. Submete o formulário clicando em Continue ou Submit
@@ -264,13 +271,10 @@ class CHEPBotEngine:
                 await page.goto("https://cmaweb.chep.com/bluechat", wait_until="networkidle", timeout=60000)
                 await asyncio.sleep(1)
 
-            # Print 1: Tela inicial assim que carrega
-            await self.save_debug_screenshot(page, "debug_01_login", "Print 1 - Tela Inicial / Login")
-
             # Sempre checar se caiu na tela de login
             await self.ensure_user_is_logged_in(page, profile_name)
             
-            if "bluechat" not in page.url:
+            if "bluechat" not in page.url and "home" not in page.url:
                 await page.goto("https://cmaweb.chep.com/bluechat", wait_until="networkidle", timeout=60000)
                 await asyncio.sleep(1)
 
