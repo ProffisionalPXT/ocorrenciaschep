@@ -188,7 +188,6 @@ class CHEPBotEngine:
                     await pass_input.focus()
                     await pass_input.fill("")
                     await pass_input.fill(password)
-                    await pass_input.press_sequentially(password, delay=30)
                     await pass_input.press("Tab")
                     await asyncio.sleep(1)
                 else:
