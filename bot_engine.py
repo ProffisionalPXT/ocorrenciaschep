@@ -121,48 +121,54 @@ class CHEPBotEngine:
         return page
 
     async def auto_login_if_needed(self, page: Page, profile_name: str = "BR__LH_PURM2"):
-        """Sequência exata do Playwright test para login no Auth0"""
+        """Navegação e preenchimento de login com suporte Okta/Auth0/CHEP"""
         try:
-            url = page.url
-            if "auth0.com" in url or "login" in url or "signin" in url:
-                email, password = self.get_credentials_for_profile(profile_name)
-                
-                self.log(f"🔑 Login detectado! Preenchendo credenciais para {profile_name} ({email})...")
-                
-                # Suporte para login Auth0, Okta e Bluechat tradicional (placeholder='Your e-mail')
-                email_input = page.locator("input[placeholder*='e-mail'], input[placeholder*='Your e-mail'], input[name='login'], input#login").first
-                if not await email_input.is_visible(timeout=1500):
-                    email_input = page.get_by_role('textbox', name='Email address')
-                if not await email_input.is_visible(timeout=1500):
-                    email_input = page.locator("input#username, input[name='username'], input[type='email']").first
-                
-                try:
-                    await email_input.wait_for(state="visible", timeout=4000)
-                    await email_input.click()
-                    await email_input.fill(email)
-                    await email_input.press("Tab")
-                except Exception as e_em:
-                    self.log(f"   ⚠️ Tentando preencher e-mail via locator direto: {e_em}")
+            email, password = self.get_credentials_for_profile(profile_name)
+            
+            # 1. Procura o campo de e-mail com seletores abrangentes
+            email_input = page.locator("input[name='identifier'], input[placeholder*='e-mail'], input[placeholder*='Your e-mail'], input[name='login'], input#login, input#username, input[type='email']").first
+            if not await email_input.is_visible(timeout=2000):
+                email_input = page.get_by_role('textbox', name='Email address')
 
+            if await email_input.is_visible(timeout=2000):
+                self.log(f"🔑 Tela de login identificada! Efetuando login para {profile_name} ({email})...")
+                await email_input.click()
+                await email_input.fill(email)
+                
+                # Procura botão Continue / Next se for tela de 2 etapas (Okta)
+                btn_continue = page.locator("button:has-text('Continue'), input[value='Continue'], button:has-text('Next')").first
+                if await btn_continue.is_visible(timeout=1500):
+                    await btn_continue.click()
+                    await asyncio.sleep(2)
+
+                # 2. Preenche a senha
                 pass_input = page.locator("input[type='password'], input[name='password'], input#password").first
-                if not await pass_input.is_visible(timeout=1500):
+                if not await pass_input.is_visible(timeout=2000):
                     pass_input = page.get_by_role('textbox', name='Password')
 
-                try:
-                    await pass_input.wait_for(state="visible", timeout=4000)
+                if await pass_input.is_visible(timeout=3000):
                     await pass_input.click()
                     await pass_input.fill(password)
                     
-                    # Botão Sign in ou Enter
-                    btn_signin = page.locator("button:has-text('Sign in'), button:has-text('Log in'), button[type='submit']").first
-                    if await btn_signin.is_visible(timeout=1500):
-                        await btn_signin.click()
+                    # Botão Entrar/Submit
+                    btn_submit = page.locator("button:has-text('Continue'), button:has-text('Sign in'), button:has-text('Log in'), button[type='submit'], input[type='submit']").first
+                    if await btn_submit.is_visible(timeout=1500):
+                        await btn_submit.click()
                     else:
                         await pass_input.press("Enter")
-                except Exception as e_pass:
-                    self.log(f"   ⚠️ Tentando submeter senha: {e_pass}")
+                    
+                    await asyncio.sleep(4)
 
-                await asyncio.sleep(4)
+            # 3. Se caiu na HOME (/home), clica no card "Gestão de carga" para ir para /bluechat
+            if "home" in page.url:
+                self.log("🏠 Detectado página HOME (/home). Clicando em 'Gestão de carga'...")
+                card_gestao = page.locator("div:has-text('Gestão de carga'), a:has-text('Gestão de carga'), .cardWidget-header").first
+                if await card_gestao.is_visible(timeout=3000):
+                    await card_gestao.click()
+                    await asyncio.sleep(2)
+
+        except Exception as e:
+            self.log(f"⚠️ Aviso no processo de login: {e}")
 
         except Exception as e:
             self.log(f"⚠️ Aviso no login: {e}")
