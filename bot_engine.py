@@ -377,43 +377,53 @@ class CHEPBotEngine:
                     
                     await asyncio.sleep(2.5)
 
+                # 1. Aguarda visibilidade da Modal e captura print debug_06_modal_aberta
+                try:
+                    await modal.wait_for(state="visible", timeout=10000)
+                except Exception:
+                    pass
+
+                await self.save_debug_screenshot(page, "debug_06_modal_aberta", "Print 6 - Modal Aberta")
                 self.log("📝 [3/6] Preenchendo os campos da Modal (Processo, Tipo de Nota e Assunto)...")
 
-                # 1. SELEÇÃO DO PROCESSO* (ng-select 1)
+                # 2. SELEÇÃO DO PROCESSO* (Aguardar Visibilidade + Clique Forçado + Teclado + Enter)
                 try:
-                    proc_select = modal.locator("ng-select").first
-                    proc_input = proc_select.locator("input").first
-                    await proc_input.click(force=True)
-                    await proc_input.fill("")
-                    await proc_input.type("LATAM - Brazil - Logistics", delay=50)
-                    await asyncio.sleep(0.8)
-                    
+                    proc_elem = modal.locator("ng-select, [name='process'], .ng-select-container").first
+                    await proc_elem.wait_for(state="visible", timeout=10000)
+                    await proc_elem.click(force=True)
+                    await asyncio.sleep(0.5)
+
+                    # Tenta digitar via teclado diretamente no campo focado
+                    await page.keyboard.type("LATAM - Brazil - Logistics", delay=50)
+                    await asyncio.sleep(0.5)
+
                     opt_log = page.locator(".ng-option").filter(has_text="Logistics").first
                     if await opt_log.is_visible(timeout=1500):
                         await opt_log.click(force=True)
                     else:
                         await page.keyboard.press("Enter")
-                    
+
                     self.log("   🟢 [OK] Processo preenchido: 'LATAM - Brazil - Logistics'")
                 except Exception as e_proc:
                     self.log(f"   ⚠️ Aviso ao preencher Processo: {e_proc}")
 
                 await asyncio.sleep(1)
 
-                # 2. SELEÇÃO DO TIPO DE NOTA* (ng-select name="noteType" ou segundo ng-select)
+                # 3. SELEÇÃO DO TIPO DE NOTA* (Aguardar Visibilidade + Clique Forçado + Teclado + Enter)
                 try:
                     self.log(f"   -> Preenchendo Tipo de Nota: '{note_type}'...")
-                    note_select = modal.locator("ng-select[name='noteType'], ng-select").nth(1)
-                    note_input = note_select.locator("input").first
-                    await note_input.click(force=True)
-                    await note_input.fill("")
-                    await note_input.type(note_type, delay=50)
-                    await asyncio.sleep(0.8)
+                    note_elem = modal.locator("ng-select[name='noteType'], ng-select").nth(1)
+                    await note_elem.wait_for(state="visible", timeout=10000)
+                    await note_elem.click(force=True)
+                    await asyncio.sleep(0.5)
+
+                    await page.keyboard.type(note_type, delay=50)
+                    await asyncio.sleep(0.5)
 
                     opt_note = page.locator(".ng-option").filter(has_text=note_type).first
                     if not await opt_note.is_visible(timeout=1500):
-                        clean_type_part = note_type.split()[-1] if " " in note_type else note_type
-                        opt_note = page.locator(".ng-option").filter(has_text=clean_type_part).first
+                        clean_part = note_type.split()[-1] if " " in note_type else note_type
+                        opt_note = page.locator(".ng-option").filter(has_text=clean_part).first
 
                     if await opt_note.is_visible(timeout=1500):
                         await opt_note.click(force=True)
@@ -426,7 +436,7 @@ class CHEPBotEngine:
 
                 await asyncio.sleep(1)
 
-                # 3. PREENCHIMENTO DO ASSUNTO (Subject)
+                # 4. PREENCHIMENTO DO ASSUNTO (Subject)
                 try:
                     assunto_val = f"{delivery_clean} - {note_type}"
                     assunto_input = modal.locator("input[name='subject'], input[placeholder*='Assunto'], input[placeholder*='Subject']").first
@@ -440,6 +450,8 @@ class CHEPBotEngine:
                         self.log(f"   🟢 [OK] Assunto preenchido: '{assunto_val}'")
                 except Exception as e_assunto:
                     self.log(f"   ⚠️ Aviso ao preencher Assunto: {e_assunto}")
+
+                break
 
             # --- 2. Seleção da Prioridade ---
             self.log("   -> Selecionando Prioridade: 'HIGH'...")
