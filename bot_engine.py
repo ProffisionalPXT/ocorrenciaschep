@@ -58,14 +58,14 @@ class CHEPBotEngine:
         except Exception:
             return False
 
-    async def launch_new_browser(self, headless: bool = False) -> bool:
+    async def launch_new_browser(self, headless: bool = True) -> bool:
         try:
             await self.get_browser_for_profile("BR__LH_PURM2", headless=headless)
             return True
         except Exception:
             return False
 
-    async def get_browser_for_profile(self, profile_name: str, headless: bool = False) -> Page:
+    async def get_browser_for_profile(self, profile_name: str, headless: bool = True) -> Page:
         """Navegador Chrome independente por perfil (PURM2 vs PURM3)"""
         clean_profile_id = "PURM3" if "PURM3" in profile_name.upper() else "PURM2"
 
@@ -77,7 +77,7 @@ class CHEPBotEngine:
             except Exception:
                 pass
 
-        self.log(f"🚀 Abrindo janela do Chrome para a conta {clean_profile_id}...")
+        self.log(f"🚀 Abrindo navegador para a conta {clean_profile_id}...")
         
         if not self.playwright:
             self.playwright = await async_playwright().start()
@@ -88,7 +88,6 @@ class CHEPBotEngine:
         context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=headless,
-            channel="chrome",
             viewport=None,
             no_viewport=True,
             args=[
