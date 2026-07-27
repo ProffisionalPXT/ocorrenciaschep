@@ -288,7 +288,17 @@ class CHEPBotEngine:
                     try:
                         await create_note_btn.click(timeout=15000)
                     except Exception:
-                        await create_note_btn.click(force=True, timeout=15000)
+                        try:
+                            await create_note_btn.click(force=True, timeout=15000)
+                        except Exception as click_err:
+                            self.log(f"   ❌ Falha ao clicar no botão 'Criar uma nota': {click_err}")
+                            shots_dir = os.path.join(os.path.dirname(__file__), "screenshots")
+                            os.makedirs(shots_dir, exist_ok=True)
+                            fname = f"erro_modal_{delivery_clean}_{int(time.time())}.png"
+                            shot_file = os.path.join(shots_dir, fname)
+                            await page.screenshot(path=shot_file)
+                            self.log(f"📸 Print do erro de clique: <a href='/screenshots/{fname}' target='_blank' style='color:#ef4444; font-weight:bold; text-decoration:underline;'>Visualizar Tela do Erro</a>")
+                            raise click_err
                     
                     await asyncio.sleep(2.5)
 

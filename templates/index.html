@@ -445,11 +445,10 @@
           </div>
 
           <!-- BOTÕES DE AÇÃO (TESTE E EXECUÇÃO REAL) -->
-          <input type="hidden" id="is_test_mode_input" name="test_mode" value="false">
           
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
-            <button type="button" class="btn-submit" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);" onclick="submitCustomForm(true)">🧪 SIMULAR E TESTAR (NÃO SALVA)</button>
-            <button type="button" class="btn-submit real-mode" onclick="submitCustomForm(false)">⚡ CRIAR OCORRÊNCIA E SALVAR</button>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
+            <button type="button" class="btn-submit" style="background-color: #f59e0b; color: white;" onclick="submitCustomForm(true)">🧪 SIMULAR E TESTAR (NÃO SALVA)</button>
+            <button type="button" class="btn-submit real-mode" style="background-color: var(--accent-green); color: white;" onclick="submitCustomForm(false)">⚡ CRIAR OCORRÊNCIA E SALVAR</button>
           </div>
         </form>
       </div>
