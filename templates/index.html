@@ -719,11 +719,23 @@
     function verifySingleDelivery() {
       const deliveryVal = document.getElementById('delivery').value.trim();
       const profile = document.getElementById('profile').value;
+      const isColetaDia = document.getElementById('chk_coleta_dia').checked;
 
       if (!deliveryVal) {
         alert('Por favor, digite o número da Delivery no campo 1 para verificar!');
         document.getElementById('delivery').focus();
         return;
+      }
+
+      // Se a caixa "COLETA DO DIA" estiver marcada, adiciona essa delivery nova para a lista de monitoramento automaticamente
+      if (isColetaDia) {
+        const area = document.getElementById('daily_deliveries_box');
+        let currentDeliveries = area.value.split('\n').map(s => s.trim()).filter(Boolean);
+        if (!currentDeliveries.includes(deliveryVal)) {
+          currentDeliveries.push(deliveryVal);
+          area.value = currentDeliveries.join('\n');
+          syncDailyDeliveriesToServer();
+        }
       }
 
       fetch('/api/check_replies', {
@@ -743,7 +755,8 @@
       const active = document.getElementById('chk_auto_mon').checked;
       if (active) {
         alert('🔔 Monitoramento automático ativado (a cada 20 min)!');
-        checkRepliesNow();
+        // Não executa pesquisa imediata ao marcar a caixa; apenas agenda a rotina a cada 20 min
+        if (monitorTimer) clearInterval(monitorTimer);
         monitorTimer = setInterval(checkRepliesNow, 1200000);
       } else {
         if (monitorTimer) clearInterval(monitorTimer);
