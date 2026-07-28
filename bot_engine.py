@@ -85,22 +85,23 @@ class CHEPBotEngine:
         except Exception:
             return False
 
-    async def get_browser_for_profile(self, profile_name: str, headless: bool = None) -> Page:
-        """Navegador Chrome independente por perfil (PURM2 vs PURM3)"""
+    async def get_browser_for_profile(self, profile_name: str, headless: bool = None, site_type: str = "cma") -> Page:
+        """Navegador Chrome independente por perfil com 2 abas separadas (cma e service_desk)"""
         if headless is None:
             headless = os.getenv("RENDER") is not None
 
         clean_profile_id = "PURM3" if "PURM3" in profile_name.upper() else "PURM2"
+        page_key = f"{clean_profile_id}_{site_type}"
 
-        if clean_profile_id in self.pages and self.pages[clean_profile_id] and not self.pages[clean_profile_id].is_closed():
-            page = self.pages[clean_profile_id]
+        if page_key in self.pages and self.pages[page_key] and not self.pages[page_key].is_closed():
+            page = self.pages[page_key]
             try:
                 await page.bring_to_front()
                 return page
             except Exception:
                 pass
 
-        self.log(f"🚀 Abrindo navegador para a conta {clean_profile_id} (Headless: {headless})...")
+        self.log(f"🚀 Abrindo aba '{site_type.upper()}' para a conta {clean_profile_id} (Headless: {headless})...")
         
         if not self.playwright:
             self.playwright = await async_playwright().start()
@@ -120,20 +121,27 @@ class CHEPBotEngine:
         else:
             args.append("--start-maximized")
 
-        context = await self.playwright.chromium.launch_persistent_context(
-            user_data_dir=user_data_dir,
-            headless=headless,
-            viewport=viewport_cfg,
-            no_viewport=not headless,
-            args=args
-        )
+        if clean_profile_id in self.contexts and self.contexts[clean_profile_id]:
+            context = self.contexts[clean_profile_id]
+        else:
+            context = await self.playwright.chromium.launch_persistent_context(
+                user_data_dir=user_data_dir,
+                headless=headless,
+                viewport=viewport_cfg,
+                no_viewport=not headless,
+                args=args
+            )
+            self.contexts[clean_profile_id] = context
 
-        page = context.pages[0] if context.pages else await context.new_page()
-        await page.goto("https://cmaweb.chep.com/bluechat", wait_until="domcontentloaded")
+        # Aba 1 = CMA Web (/bluechat) | Aba 2 = Service Desk (/workspaces/CHEP)
+        if site_type == "service_desk":
+            page = await context.new_page()
+            await page.goto("https://contact.cmaweb.chep.com/workspaces/CHEP/requests?page=0&step=10", wait_until="domcontentloaded")
+        else:
+            page = context.pages[0] if context.pages else await context.new_page()
+            await page.goto("https://cmaweb.chep.com/bluechat", wait_until="domcontentloaded")
         
-        self.contexts[clean_profile_id] = context
-        self.pages[clean_profile_id] = page
-
+        self.pages[page_key] = page
         await self.ensure_user_is_logged_in(page, profile_name)
         return page
 
@@ -602,12 +610,11 @@ class CHEPBotEngine:
         profile_name: str = "BR__LH_PURM2",
         test_mode: bool = False
     ) -> str:
-        page = await self.get_browser_for_profile(profile_name)
+        contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk")
 
         try:
             self.log(f"\n🌐 [2º Sistema] Abrindo Service Desk (contact.cmaweb.chep.com)...")
             
-            contact_page = page
             if "contact.cmaweb.chep.com" not in contact_page.url:
                 await contact_page.goto("https://contact.cmaweb.chep.com/workspaces/CHEP/dashboard", wait_until="domcontentloaded")
                 await asyncio.sleep(2)
@@ -665,13 +672,12 @@ class CHEPBotEngine:
             return "ERROR"
 
     async def check_pending_carrier_replies(self, daily_deliveries: List[str], profile_name: str = "BR__LH_PURM2") -> List[str]:
-        page = await self.get_browser_for_profile(profile_name)
+        contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk")
 
         answered_deliveries = []
         try:
             self.log(f"🔍 [Monitor] Verificando {len(daily_deliveries)} deliveries no Service Desk ({profile_name})...")
             
-            contact_page = page
             target_url = "https://contact.cmaweb.chep.com/workspaces/CHEP/requests?page=0&step=10"
             if "contact.cmaweb.chep.com" not in contact_page.url:
                 await contact_page.goto(target_url, wait_until="domcontentloaded")
