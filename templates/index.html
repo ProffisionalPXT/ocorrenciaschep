@@ -317,6 +317,7 @@
         <div class="conn-buttons">
           <button class="btn-conn" onclick="connectChrome('cdp')">🔗 Conectar Chrome Aberto</button>
           <button class="btn-conn green" onclick="connectChrome('new')">🚀 Abrir Novo Chrome</button>
+          <button class="btn-conn" style="background: #991b1b; border-color: #ef4444;" onclick="clearHostData()">🧹 Limpar Host / Sessão</button>
         </div>
       </div>
     </header>
@@ -614,6 +615,15 @@
 
     function clearPhoto() {
       document.getElementById('photo').value = '';
+    }
+
+    function clearHostData() {
+      if (confirm("Deseja reiniciar a sessão do navegador e limpar o cache do Host?")) {
+        fetch('/api/clear-host', { method: 'POST' })
+          .then(res => res.json())
+          .then(data => alert(data.message || data.error))
+          .catch(err => alert("Erro ao reiniciar host: " + err));
+      }
     }
 
     function toggleTestMode() {
