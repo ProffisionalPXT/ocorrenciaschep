@@ -127,7 +127,7 @@ def execute_occurrence():
     if coleta_dia and delivery not in daily_deliveries:
         daily_deliveries.append(delivery)
         save_json(DAILY_DELIVERIES_FILE, daily_deliveries)
-        delivery_statuses[delivery] = "yellow"
+        delivery_statuses[delivery] = {"status": "yellow", "last_sent": None, "updated_at": time.time()}
         append_log(f"🔔 Delivery #{delivery} adicionada ao monitoramento 'COLETA DO DIA' (a cada 20 min)!")
 
     def run_tasks():
@@ -236,15 +236,24 @@ def check_replies():
             engine.check_pending_carrier_replies(deliveries_to_check, profile_name=profile),
             async_loop
         )
-        answered = fut.result(timeout=120)
-        for deliv, is_purple, is_overdue in answered:
+        for res_item in answered:
+            deliv = res_item[0]
+            is_purple = res_item[1]
+            is_overdue = res_item[2]
+            last_time = res_item[3] if len(res_item) > 3 else None
+            
+            st_color = "purple" if is_purple else ("overdue" if is_overdue else "yellow")
+            delivery_statuses[deliv] = {
+                "status": st_color,
+                "last_sent": last_time,
+                "updated_at": time.time()
+            }
             if is_purple:
-                delivery_statuses[deliv] = "purple"
                 append_log(f"🚨 Delivery #{deliv} atualizada para ROXO!")
             elif is_overdue:
-                delivery_statuses[deliv] = "overdue"
-                append_log(f"⏰ Delivery #{deliv} marcada com ALERTA > 1H (Passou de 1h10 desde a última mensagem)!")
-        return jsonify({"success": True, "answered_deliveries": [d for d, purp, over in answered if purp], "statuses": delivery_statuses})
+                append_log(f"⏰ Delivery #{deliv} marcada com ALERTA > 1H ({last_time})!")
+
+        return jsonify({"success": True, "answered_deliveries": [item[0] for item in answered if item[1]], "statuses": delivery_statuses})
     except Exception as e:
         append_log(f"⚠️ Erro ao verificar respostas: {e}")
         return jsonify({"success": False, "error": str(e), "answered_deliveries": [], "statuses": delivery_statuses})
