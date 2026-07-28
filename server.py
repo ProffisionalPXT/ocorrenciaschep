@@ -181,6 +181,18 @@ def execute_occurrence():
 
         append_log(f"🚀 Processo concluído com sucesso para a Delivery #{delivery}!")
 
+        # Se for COLETA DO DIA, verifica imediatamente no Service Desk se já possui resposta e atualiza o painel
+        if coleta_dia:
+            append_log(f"🔍 [Coleta do Dia] Verificando imediatamente se a Delivery #{delivery} possui resposta no Service Desk...")
+            try:
+                fut_check = asyncio.run_coroutine_threadsafe(
+                    engine.check_pending_carrier_replies([delivery], profile_name=profile),
+                    async_loop
+                )
+                fut_check.result()
+            except Exception as e_chk:
+                append_log(f"⚠️ Aviso na verificação imediata: {e_chk}")
+
     threading.Thread(target=run_tasks, daemon=True).start()
     return jsonify({"success": True, "message": "Preenchimento iniciado em segundo plano!"})
 
