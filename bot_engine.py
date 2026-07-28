@@ -334,31 +334,21 @@ class CHEPBotEngine:
                     pass
 
                 if not is_modal_already_open:
-                    self.log(f"   👉 Marcando a caixa da Entrega #{delivery_clean}...")
+                    self.log("   👉 Selecionando a Delivery na tabela de resultados...")
                     try:
-                        # Tenta localizar o card da Entrega específica
-                        delivery_container = page.locator(f"div:has-text('{delivery_clean}')").last
-                        chk_entrega = delivery_container.locator("input[type='checkbox']").first
-                        
-                        if not await chk_entrega.is_visible(timeout=1500):
-                            # Fallback: Seleciona o checkbox da entrega na lista (geralmente o segundo checkbox na página)
-                            all_chks = page.locator("input[type='checkbox']")
-                            count_chks = await all_chks.count()
-                            if count_chks > 1:
-                                chk_entrega = all_chks.nth(1)
-                            elif count_chks == 1:
-                                chk_entrega = all_chks.first
-
-                        if await chk_entrega.is_visible(timeout=2000):
-                            if not await chk_entrega.is_checked():
-                                await chk_entrega.click(force=True)
+                        row_chk = page.locator(".ag-selection-checkbox, .ag-row-first input[type='checkbox'], input[type='checkbox']").first
+                        if await row_chk.is_visible(timeout=3000):
+                            await row_chk.click(force=True)
+                            await asyncio.sleep(1)
+                        else:
+                            first_row = page.locator(".ag-row-first, tbody tr").first
+                            if await first_row.is_visible(timeout=2000):
+                                await first_row.click(force=True)
                                 await asyncio.sleep(1)
-                                self.log(f"   🟢 Checkbox da Entrega #{delivery_clean} marcado!")
                     except Exception as e_row:
-                        self.log(f"   ⚠️ Aviso ao marcar checkbox da entrega: {e_row}")
+                        self.log(f"   ⚠️ Aviso ao selecionar linha da tabela: {e_row}")
 
-                    # Clica no botão CRIAR UMA NOTA dentro do card da entrega
-                    create_note_btn = page.locator(f"button:has-text('CRIAR UMA NOTA'), button:has-text('Criar uma nota'), button:has-text('Create note')").first
+                    create_note_btn = page.locator("button:has-text('Criar uma nota'), button:has-text('CRIAR UMA NOTA'), button:has-text('Create note')").first
                     if not await create_note_btn.is_visible(timeout=2500):
                         create_note_btn = page.get_by_role('button', name='Criar uma nota')
 
@@ -553,7 +543,7 @@ class CHEPBotEngine:
             fname = f"preview_{delivery_clean}_{int(time.time())}.png"
             shot_file = os.path.join(shots_dir, fname)
 
-            # Rola a modal e aplica zoom 80% para visualizar o anexo e a parte inferior no print de aprovação
+            # Rola a modal e aplica zoom 80% para visualizar o anexo no print
             try:
                 await page.evaluate("""() => {
                     const modalBody = document.querySelector('.modal-body, .modal-content, [role="dialog"]');
