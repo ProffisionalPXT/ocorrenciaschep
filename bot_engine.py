@@ -334,21 +334,31 @@ class CHEPBotEngine:
                     pass
 
                 if not is_modal_already_open:
-                    self.log("   👉 Selecionando a Delivery na tabela de resultados...")
+                    self.log(f"   👉 Marcando a caixa da Entrega #{delivery_clean}...")
                     try:
-                        row_chk = page.locator(".ag-selection-checkbox, .ag-row-first input[type='checkbox'], input[type='checkbox']").first
-                        if await row_chk.is_visible(timeout=3000):
-                            await row_chk.click(force=True)
-                            await asyncio.sleep(1)
-                        else:
-                            first_row = page.locator(".ag-row-first, tbody tr").first
-                            if await first_row.is_visible(timeout=2000):
-                                await first_row.click(force=True)
-                                await asyncio.sleep(1)
-                    except Exception as e_row:
-                        self.log(f"   ⚠️ Aviso ao selecionar linha da tabela: {e_row}")
+                        # Tenta localizar o card da Entrega específica
+                        delivery_container = page.locator(f"div:has-text('{delivery_clean}')").last
+                        chk_entrega = delivery_container.locator("input[type='checkbox']").first
+                        
+                        if not await chk_entrega.is_visible(timeout=1500):
+                            # Fallback: Seleciona o checkbox da entrega na lista (geralmente o segundo checkbox na página)
+                            all_chks = page.locator("input[type='checkbox']")
+                            count_chks = await all_chks.count()
+                            if count_chks > 1:
+                                chk_entrega = all_chks.nth(1)
+                            elif count_chks == 1:
+                                chk_entrega = all_chks.first
 
-                    create_note_btn = page.locator("button:has-text('Criar uma nota'), button:has-text('CRIAR UMA NOTA'), button:has-text('Create note')").first
+                        if await chk_entrega.is_visible(timeout=2000):
+                            if not await chk_entrega.is_checked():
+                                await chk_entrega.click(force=True)
+                                await asyncio.sleep(1)
+                                self.log(f"   🟢 Checkbox da Entrega #{delivery_clean} marcado!")
+                    except Exception as e_row:
+                        self.log(f"   ⚠️ Aviso ao marcar checkbox da entrega: {e_row}")
+
+                    # Clica no botão CRIAR UMA NOTA dentro do card da entrega
+                    create_note_btn = page.locator(f"button:has-text('CRIAR UMA NOTA'), button:has-text('Criar uma nota'), button:has-text('Create note')").first
                     if not await create_note_btn.is_visible(timeout=2500):
                         create_note_btn = page.get_by_role('button', name='Criar uma nota')
 
@@ -367,63 +377,82 @@ class CHEPBotEngine:
                     
                     await asyncio.sleep(2.5)
 
-                self.log("📝 [3/6] Preenchendo o campo Processo de forma blindada...")
-
+                # 1. Aguarda visibilidade da Modal e captura print debug_06_modal_aberta
                 try:
-                    # 1. Clica no container do Processo usando o texto do rótulo visível na tela
-                    proc_select = modal.locator("ng-select").filter(has_text="Processo").first
-                    if not await proc_select.is_visible(timeout=2000):
-                        proc_select = page.locator("ng-select").filter(has_text="Processo").first
+                    await modal.wait_for(state="visible", timeout=10000)
+                except Exception:
+                    pass
 
-                    arrow = proc_select.locator(".ng-arrow-wrapper").first
-                    if not await arrow.is_visible(timeout=1500):
-                        arrow = modal.locator(".ng-arrow-wrapper").first
+                await self.save_debug_screenshot(page, "debug_06_modal_aberta", "Print 6 - Modal Aberta")
+                self.log("📝 [3/6] Preenchendo os campos da Modal (Processo, Tipo de Nota e Assunto)...")
 
-                    await arrow.click(force=True)
-                    await page.wait_for_timeout(400)
+                # 2. SELEÇÃO DO PROCESSO* (Aguardar Visibilidade + Clique Forçado + Teclado + Enter)
+                try:
+                    await page.wait_for_timeout(3000)  # Aguarda 3 segundos para o dropdown carregar na nuvem
+                    proc_elem = modal.locator("ng-select, [name='process'], .ng-select-container").first
+                    await proc_elem.wait_for(state="visible", timeout=10000)
+                    await proc_elem.click(force=True)
+                    await asyncio.sleep(0.5)
 
-                    # 2. Digita o nome do processo diretamente no input que se abre
-                    await page.keyboard.type("LATAM - Brazil - Logistics", delay=100)
-                    await page.wait_for_timeout(600)
+                    # Tenta digitar via teclado diretamente no campo focado
+                    await page.keyboard.type("LATAM - Brazil - Logistics", delay=50)
+                    await asyncio.sleep(0.5)
 
-                    # 3. Clica na opção correspondente que apareceu na lista
-                    opt = page.get_by_role("option", name="LATAM - Brazil - Logistics")
-                    if not await opt.is_visible(timeout=1500):
-                        opt = page.get_by_role("option", name="Logistics")
-                    if not await opt.is_visible(timeout=1500):
-                        opt = page.locator(".ng-option").filter(has_text="Logistics").first
-
-                    if await opt.is_visible(timeout=1500):
-                        await opt.click(force=True)
-                        self.log("   🟢 [OK] Processo selecionado: 'LATAM - Brazil - Logistics'!")
+                    opt_log = page.locator(".ng-option").filter(has_text="Logistics").first
+                    if await opt_log.is_visible(timeout=1500):
+                        await opt_log.click(force=True)
                     else:
                         await page.keyboard.press("Enter")
-                        self.log("   🟢 [OK] Processo confirmado via Enter!")
 
-                    modal_filled_success = True
-                    break
+                    self.log("   🟢 [OK] Processo preenchido: 'LATAM - Brazil - Logistics'")
                 except Exception as e_proc:
                     self.log(f"   ⚠️ Aviso ao preencher Processo: {e_proc}")
-                    if attempt < max_modal_attempts:
-                        close_x = page.get_by_text('×Close')
-                        if not await close_x.is_visible(timeout=1000):
-                            close_x = page.get_by_text('×')
-                        if not await close_x.is_visible(timeout=1000):
-                            close_x = modal.locator('.modal-header button.close, button.close, [aria-label="Close"]').first
-                        
-                        await close_x.click(force=True)
-                        await asyncio.sleep(1.0)
-                        try:
-                            await modal.wait_for(state="hidden", timeout=3000)
-                        except Exception:
-                            pass
-                        await asyncio.sleep(2.0)  # Cortina cinza sumir!
-                    else:
-                        self.log("❌ Limite de tentativas atingido.")
 
-            # --- 1. Seleção do Tipo de Nota ---
-            self.log(f"   -> Selecionando Tipo de Nota: '{note_type}'...")
-            await self.abrirTipoNota(page, note_type)
+                await page.wait_for_timeout(2000)  # Aguarda 2 segundos entre as seleções
+
+                # 3. SELEÇÃO DO TIPO DE NOTA* (Aguardar Visibilidade + Clique Forçado + Teclado + Enter)
+                try:
+                    self.log(f"   -> Preenchendo Tipo de Nota: '{note_type}'...")
+                    note_elem = modal.locator("ng-select[name='noteType'], ng-select").nth(1)
+                    await note_elem.wait_for(state="visible", timeout=10000)
+                    await note_elem.click(force=True)
+                    await asyncio.sleep(0.5)
+
+                    await page.keyboard.type(note_type, delay=50)
+                    await asyncio.sleep(0.5)
+
+                    opt_note = page.locator(".ng-option").filter(has_text=note_type).first
+                    if not await opt_note.is_visible(timeout=1500):
+                        clean_part = note_type.split()[-1] if " " in note_type else note_type
+                        opt_note = page.locator(".ng-option").filter(has_text=clean_part).first
+
+                    if await opt_note.is_visible(timeout=1500):
+                        await opt_note.click(force=True)
+                    else:
+                        await page.keyboard.press("Enter")
+
+                    self.log(f"   🟢 [OK] Tipo de nota preenchido: '{note_type}'")
+                except Exception as e_note:
+                    self.log(f"   ⚠️ Aviso ao preencher Tipo de Nota: {e_note}")
+
+                await asyncio.sleep(1)
+
+                # 4. PREENCHIMENTO DO ASSUNTO (Subject)
+                try:
+                    assunto_val = f"{delivery_clean} - {note_type}"
+                    assunto_input = modal.locator("input[name='subject'], input[placeholder*='Assunto'], input[placeholder*='Subject']").first
+                    if not await assunto_input.is_visible(timeout=1500):
+                        assunto_input = modal.locator("input[type='text']").first
+
+                    if await assunto_input.is_visible(timeout=2000):
+                        await assunto_input.click(force=True)
+                        await assunto_input.fill("")
+                        await assunto_input.fill(assunto_val)
+                        self.log(f"   🟢 [OK] Assunto preenchido: '{assunto_val}'")
+                except Exception as e_assunto:
+                    self.log(f"   ⚠️ Aviso ao preencher Assunto: {e_assunto}")
+
+                break
 
             # --- 2. Seleção da Prioridade ---
             self.log("   -> Selecionando Prioridade: 'HIGH'...")
@@ -488,26 +517,7 @@ class CHEPBotEngine:
             os.makedirs(shots_dir, exist_ok=True)
             fname = f"preview_{delivery_clean}_{int(time.time())}.png"
             shot_file = os.path.join(shots_dir, fname)
-
-            # Rola a modal e aplica zoom 80% para visualizar o anexo no print
-            try:
-                await page.evaluate("""() => {
-                    const modalBody = document.querySelector('.modal-body, .modal-content, [role="dialog"]');
-                    if (modalBody) {
-                        modalBody.scrollTop = modalBody.scrollHeight;
-                    }
-                    document.body.style.zoom = '80%';
-                }""")
-                await asyncio.sleep(0.5)
-            except Exception:
-                pass
-
             await page.screenshot(path=shot_file)
-
-            try:
-                await page.evaluate("() => { document.body.style.zoom = '100%'; }")
-            except Exception:
-                pass
             
             self.log(f"⏳ Aguardando aprovação visual no Painel: /static/{fname}")
             
@@ -618,13 +628,12 @@ class CHEPBotEngine:
             await editor.fill(reply_message)
             await asyncio.sleep(1)
 
-            # BACKUP/DESATIVADO: Para testes seguros (não clica em enviar)
-            # send_btn = contact_page.locator("button:has(.fa-paper-plane), button:has-text('Send'), button.btn-primary:has(svg)").first
-            # if await send_btn.is_visible(timeout=3000):
-            #     await send_btn.click()
-            #     await asyncio.sleep(2)
-            #     self.log("✅ Resposta enviada no Contact CHEP!")
-            #     return "SUCCESS"
+            send_btn = contact_page.locator("button:has(.fa-paper-plane), button:has-text('Send'), button.btn-primary:has(svg)").first
+            if await send_btn.is_visible(timeout=3000):
+                await send_btn.click()
+                await asyncio.sleep(2)
+                self.log("✅ Resposta enviada no Contact CHEP!")
+                return "SUCCESS"
             return "SUCCESS"
 
         except Exception as e:

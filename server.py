@@ -207,43 +207,6 @@ def resolve_approval():
         return jsonify({"success": True, "message": f"Ação '{action}' registrada com sucesso."})
     return jsonify({"success": False, "error": "Nenhuma aprovação pendente."}), 400
 
-@app.route("/api/clear-host", methods=["POST"])
-def clear_host():
-    """Fecha navegadores e apaga as pastas de sessão/perfil do Chrome do Host"""
-    try:
-        append_log("🧹 Limpando navegadores e arquivos de sessão do Host...")
-        
-        fut = asyncio.run_coroutine_threadsafe(engine.close(), async_loop)
-        try:
-            fut.result(timeout=5)
-        except Exception:
-            pass
-
-        user_home = os.path.expanduser("~")
-        for p in [".chep_bot_chrome_profile_purm2", ".chep_bot_chrome_profile_purm3"]:
-            path = os.path.join(user_home, p)
-            if os.path.exists(path):
-                import shutil
-                try:
-                    shutil.rmtree(path, ignore_errors=True)
-                    append_log(f"   🟢 [OK] Pasta de perfil {p} removida do Host.")
-                except Exception as e:
-                    append_log(f"   ⚠️ Aviso ao apagar {p}: {e}")
-
-        static_dir = os.path.join(os.path.dirname(__file__), "static")
-        if os.path.exists(static_dir):
-            for f in os.listdir(static_dir):
-                if f.endswith(".png"):
-                    try:
-                        os.remove(os.path.join(static_dir, f))
-                    except Exception:
-                        pass
-
-        append_log("✅ Limpeza do Host concluída com sucesso! Uma nova sessão limpa do navegador será iniciada no próximo comando.")
-        return jsonify({"success": True, "message": "Host e perfil do Chrome limpos com sucesso!"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
 @app.route("/api/check_replies", methods=["POST"])
 def check_replies():
     data = request.json or {}
@@ -299,24 +262,11 @@ def handle_messages():
         save_json(MESSAGES_FILE, messages)
         return jsonify({"success": True, "messages": messages})
 
-import webbrowser
-import threading
-
 if __name__ == "__main__":
     local_ip = get_local_ip()
     print("=" * 65)
     print("CHEP BOT WEB SERVER INICIADO!")
-    print(f"Acesse pelo PC:      http://localhost:5000")
-    print(f"Acesse pelo Celular: http://{local_ip}:5000")
+    print(f"Acese pelo PC:      http://localhost:5000")
+    print(f"Acese pelo Celular: http://{local_ip}:5000")
     print("=" * 65)
-
-    if os.getenv("RENDER") is None:
-        def _open():
-            time.sleep(1.5)
-            try:
-                webbrowser.open("http://localhost:5000")
-            except Exception:
-                pass
-        threading.Thread(target=_open, daemon=True).start()
-
     app.run(host="0.0.0.0", port=5000, debug=False)
