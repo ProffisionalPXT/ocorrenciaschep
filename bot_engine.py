@@ -628,8 +628,14 @@ class CHEPBotEngine:
                 await opened_btn.click()
                 await asyncio.sleep(1.5)
 
-            search_box = contact_page.locator("input[placeholder*='Search by delivery'], input[placeholder*='delivery number']").first
-            if await search_box.is_visible(timeout=3000):
+            search_box = contact_page.locator("input[placeholder*='Search by delivery'], input[placeholder*='delivery number'], input.form-control").first
+            if not await search_box.is_visible(timeout=3000):
+                await contact_page.goto("https://contact.cmaweb.chep.com/workspaces/CHEP/requests?page=0&step=10", wait_until="domcontentloaded")
+                await asyncio.sleep(2)
+                search_box = contact_page.locator("input[placeholder*='Search by delivery'], input[placeholder*='delivery number'], input.form-control").first
+
+            if await search_box.is_visible(timeout=4000):
+                await search_box.click()
                 await search_box.fill(delivery_number)
                 await asyncio.sleep(0.5)
                 search_btn = contact_page.locator("button:has-text('Search'), button:has-text('Pesquisar')").first
@@ -637,7 +643,7 @@ class CHEPBotEngine:
                     await search_btn.click()
                 else:
                     await search_box.press("Enter")
-                await asyncio.sleep(2)
+                await asyncio.sleep(2.5)
 
             table_rows = contact_page.locator("table tbody tr")
             await table_rows.first.wait_for(state="visible", timeout=6000)
@@ -645,13 +651,14 @@ class CHEPBotEngine:
             row_text = await table_rows.first.inner_text()
             row_lower = row_text.lower()
             if "pending carrier reply" in row_lower or ("carrier reply" in row_lower and "internal" not in row_lower):
-                self.log("🚨 [ATENÇÃO] Status na tabela é 'Pending carrier reply' (Roxo)!")
+                self.log("🚨 [DESLOCAMENTO VAZIO] Status na tabela é 'Pending carrier reply' (Roxo)! Tirando print e avisando...")
                 await self.save_debug_screenshot(contact_page, f"roxo_{delivery_number}", f"Print Status Roxo #{delivery_number}")
                 return "PENDING_CARRIER_REPLY"
 
+            # Se estiver Amarelo (Pending internal reply), clica na última nota (primeira linha da lista organizada por data mais recente)
+            self.log(f"🟡 Status Amarelo (Pending internal reply)! Clicando na última nota da delivery #{delivery_number}...")
             await table_rows.first.click()
             await asyncio.sleep(2)
-            await self.save_debug_screenshot(contact_page, f"mensagem_roxo_{delivery_number}", f"Print Mensagem #{delivery_number}")
 
             editor = contact_page.locator("[contenteditable='true'], textarea, .ql-editor, [placeholder*='Insert text here']").first
             await editor.wait_for(state="visible", timeout=5000)
@@ -663,7 +670,8 @@ class CHEPBotEngine:
             if await send_btn.is_visible(timeout=3000):
                 await send_btn.click()
                 await asyncio.sleep(2)
-                self.log("✅ Resposta enviada no Contact CHEP!")
+                self.log("✅ Resposta enviada com sucesso no Service Desk!")
+                await self.save_debug_screenshot(contact_page, f"resposta_enviada_{delivery_number}", f"Print Resposta Enviada #{delivery_number}")
                 return "SUCCESS"
             return "SUCCESS"
 
