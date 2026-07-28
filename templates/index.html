@@ -814,6 +814,11 @@
       updateProfileIndicator();
       toggleLocation();
       fetchLogs();
+
+      // Se a caixa "Monitorar a cada 20 min" estiver marcada na abertura da página, inicia o timer automático
+      if (document.getElementById('chk_auto_mon').checked) {
+        monitorTimer = setInterval(checkRepliesNow, 1200000);
+      }
     });
 
     // --- Lógica de Aprovação Visual ---
