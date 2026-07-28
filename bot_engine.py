@@ -726,6 +726,7 @@ class CHEPBotEngine:
                     continue
 
                 has_purple_reply = False
+                overdue_notes = []
                 for i in range(count):
                     row_text = await table_rows.nth(i).inner_text()
                     row_lower = row_text.lower()
@@ -735,16 +736,40 @@ class CHEPBotEngine:
 
                     if "pending carrier reply" in row_lower or ("carrier reply" in row_lower and "internal" not in row_lower):
                         has_purple_reply = True
-                        break
+
+                    # Tenta extrair a data/hora do "Last message sent" para avisar se passou de 1h (70 min)
+                    try:
+                        cells = table_rows.nth(i).locator("td")
+                        cell_count = await cells.count()
+                        # A coluna Last message sent geralmente é uma das colunas com formato DD/MM/YYYY HH:MM
+                        for c_idx in range(cell_count):
+                            c_text = (await cells.nth(c_idx).inner_text()).strip()
+                            if "/" in c_text and ":" in c_text and len(c_text) >= 14:
+                                # Exemplo: "28/07/2026 10:12"
+                                from datetime import datetime
+                                parts = c_text.split()
+                                if len(parts) >= 2:
+                                    dt_str = f"{parts[0]} {parts[1]}"
+                                    last_sent_dt = datetime.strptime(dt_str, "%d/%m/%Y %H:%M")
+                                    diff_minutes = (datetime.now() - last_sent_dt).total_seconds() / 60.0
+                                    if diff_minutes >= 70:
+                                        overdue_notes.append((c_text, int(diff_minutes)))
+                                    break
+                    except Exception:
+                        pass
 
                 if has_purple_reply:
                     self.log(f"🚨 [RESPONDIDA PELA CHEP] Delivery #{deliv_clean} possui status ROXO (Pending carrier reply)!")
-                    answered_deliveries.append(deliv_clean)
+                    answered_deliveries.append((deliv_clean, True, False))
+                elif overdue_notes:
+                    last_time_str, mins = overdue_notes[0]
+                    self.log(f"⏰ [ATENÇÃO > 1H] Delivery #{deliv_clean}: Última mensagem enviada há {mins} min ({last_time_str})! Já passou de 1h10, hora de atualizar nova ocorrência!")
+                    answered_deliveries.append((deliv_clean, False, True))
                 else:
                     self.log(f"🟡 Delivery #{deliv_clean}: Status na tabela é Amarelo (Pending internal reply).")
 
             if not answered_deliveries:
-                self.log("🟢 Nenhuma nova resposta roxa encontrada.")
+                self.log("🟢 Nenhuma nova resposta roxa ou pendência > 1h encontrada.")
             
             return answered_deliveries
 

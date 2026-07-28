@@ -675,9 +675,12 @@
           } else {
             list.innerHTML = deliveries.map(d => {
               const st = data.statuses[d] || 'yellow';
-              const statusHtml = st === 'purple'
-                ? `<span>🟣 #${d} - RESPONDIDA PELA CHEP</span>`
-                : `<span>🟡 #${d} - Aguarding resposta</span>`;
+              let statusHtml = `<span>🟡 #${d} - Aguardando resposta</span>`;
+              if (st === 'purple') {
+                statusHtml = `<span>🟣 #${d} - RESPONDIDA PELA CHEP</span>`;
+              } else if (st === 'overdue') {
+                statusHtml = `<span style="color: #f97316; font-weight: 800;">⏰ #${d} - PASSOU DE 1H (Atualizar Ocorrência!)</span>`;
+              }
 
               return `
                 <div class="status-badge ${st}">

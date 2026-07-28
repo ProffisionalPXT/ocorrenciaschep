@@ -237,10 +237,14 @@ def check_replies():
             async_loop
         )
         answered = fut.result(timeout=120)
-        for deliv in answered:
-            delivery_statuses[deliv] = "purple"
-            append_log(f"🚨 Delivery #{deliv} atualizada para ROXO!")
-        return jsonify({"success": True, "answered_deliveries": answered, "statuses": delivery_statuses})
+        for deliv, is_purple, is_overdue in answered:
+            if is_purple:
+                delivery_statuses[deliv] = "purple"
+                append_log(f"🚨 Delivery #{deliv} atualizada para ROXO!")
+            elif is_overdue:
+                delivery_statuses[deliv] = "overdue"
+                append_log(f"⏰ Delivery #{deliv} marcada com ALERTA > 1H (Passou de 1h10 desde a última mensagem)!")
+        return jsonify({"success": True, "answered_deliveries": [d for d, purp, over in answered if purp], "statuses": delivery_statuses})
     except Exception as e:
         append_log(f"⚠️ Erro ao verificar respostas: {e}")
         return jsonify({"success": False, "error": str(e), "answered_deliveries": [], "statuses": delivery_statuses})
