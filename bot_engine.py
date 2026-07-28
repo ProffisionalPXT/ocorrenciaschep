@@ -199,9 +199,6 @@ class CHEPBotEngine:
                 else:
                     self.log("⚠️ Campo de senha não encontrado na tela de login!")
 
-                # Print 1: Login Preenchido (com e-mail e senha inseridos)
-                await self.save_debug_screenshot(page, "debug_01_login", "Print 1 - Login Preenchido")
-                
                 # 3. Submete o formulário clicando em Continue ou Submit
                 btn_submit = page.locator("button:has-text('Continue'), input[value='Continue'], button:has-text('Sign in'), button:has-text('Log in'), button[type='submit'], input[type='submit']").first
                 if await btn_submit.is_visible(timeout=2000):
@@ -211,8 +208,8 @@ class CHEPBotEngine:
                 
                 await asyncio.sleep(5)
 
-            # Print 2: Após Autenticar / Home
-            await self.save_debug_screenshot(page, "debug_02_home", "Print 2 - Pós Login / Home")
+        except Exception as e:
+            self.log(f"⚠️ Aviso no processo de login: {e}")
 
         except Exception as e:
             self.log(f"⚠️ Aviso no processo de login: {e}")
@@ -292,7 +289,6 @@ class CHEPBotEngine:
             if await card_header.is_visible(timeout=1500):
                 await card_header.click()
                 await asyncio.sleep(2)
-                await self.save_debug_screenshot(page, "debug_03_gestao_carga", "Print 3 - Gestão de Carga")
 
             # Apenas após Login e Gestão de Carga, inicia a pesquisa da Delivery
             self.log(f"\n🔍 [Passo 2/2] Pesquisando a Delivery #{delivery_clean} na Gestão de Carga...")
@@ -317,9 +313,6 @@ class CHEPBotEngine:
 
                 if await btn_apply.is_visible(timeout=2000):
                     await btn_apply.click(force=True)
-                    await asyncio.sleep(3)
-                    # Print 4: Resultado da Pesquisa da Delivery
-                    await self.save_debug_screenshot(page, "debug_04_resultado_pesquisa", "Print 4 - Resultado Pesquisa Delivery")
                     self.log("   🟢 [OK] Clicado no botão Apply!")
                     await asyncio.sleep(2.5)
 
@@ -645,10 +638,12 @@ class CHEPBotEngine:
             row_lower = row_text.lower()
             if "pending carrier reply" in row_lower or ("carrier reply" in row_lower and "internal" not in row_lower):
                 self.log("🚨 [ATENÇÃO] Status na tabela é 'Pending carrier reply' (Roxo)!")
+                await self.save_debug_screenshot(contact_page, f"roxo_{delivery_number}", f"Print Status Roxo #{delivery_number}")
                 return "PENDING_CARRIER_REPLY"
 
             await table_rows.first.click()
             await asyncio.sleep(2)
+            await self.save_debug_screenshot(contact_page, f"mensagem_roxo_{delivery_number}", f"Print Mensagem #{delivery_number}")
 
             editor = contact_page.locator("[contenteditable='true'], textarea, .ql-editor, [placeholder*='Insert text here']").first
             await editor.wait_for(state="visible", timeout=5000)
