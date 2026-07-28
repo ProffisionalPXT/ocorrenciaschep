@@ -634,6 +634,30 @@
       syncDailyDeliveriesToServer();
     }
 
+    const deliveryTimers = {};
+
+    function getFormattedTimer(d) {
+      if (!deliveryTimers[d]) {
+        deliveryTimers[d] = 1200; // 20 minutos por padrão
+      }
+      const m = Math.floor(deliveryTimers[d] / 60).toString().padStart(2, '0');
+      const s = (deliveryTimers[d] % 60).toString().padStart(2, '0');
+      return `${m}:${s}`;
+    }
+
+    setInterval(() => {
+      const rawText = document.getElementById('daily_deliveries_box').value;
+      const deliveries = rawText.split('\n').map(s => s.trim()).filter(Boolean);
+      deliveries.forEach(d => {
+        if (!deliveryTimers[d]) deliveryTimers[d] = 1200;
+        deliveryTimers[d]--;
+        if (deliveryTimers[d] <= 0) deliveryTimers[d] = 1200;
+        
+        const el = document.getElementById(`timer_val_${d}`);
+        if (el) el.innerText = getFormattedTimer(d);
+      });
+    }, 1000);
+
     function renderStatuses(statuses) {
       const rawText = document.getElementById('daily_deliveries_box').value;
       const deliveries = rawText.split('\n').map(s => s.trim()).filter(Boolean);
@@ -647,18 +671,14 @@
       list.innerHTML = deliveries.map(d => {
         const stObj = statuses ? statuses[d] : null;
         const st = (typeof stObj === 'object' && stObj !== null) ? stObj.status : (stObj || 'yellow');
-        const lastSentStr = (typeof stObj === 'object' && stObj !== null && stObj.last_sent) ? stObj.last_sent : null;
-        
-        let timerBadge = '';
-        if (lastSentStr) {
-          timerBadge = `<span style="font-size: 11px; font-weight: 700; color: #a855f7; background: rgba(168, 85, 247, 0.15); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.3);">⏱️ ${lastSentStr}</span>`;
-        }
+        const lastSentStr = (typeof stObj === 'object' && stObj !== null && stObj.last_sent) ? stObj.last_sent : '';
+        const timerStr = getFormattedTimer(d);
 
-        let statusHtml = `<span>🟡 #${d} - Aguardando resposta</span> ${timerBadge}`;
+        let statusHtml = `<span>🟡 #${d} - ⏱️ Próximo em: <strong id="timer_val_${d}">${timerStr}</strong> ${lastSentStr ? '('+lastSentStr+')' : ''}</span>`;
         if (st === 'purple') {
-          statusHtml = `<span>🟣 #${d} - RESPONDIDA PELA CHEP</span> ${timerBadge}`;
+          statusHtml = `<span>🟣 #${d} - RESPONDIDA PELA CHEP ⏱️ <strong id="timer_val_${d}">${timerStr}</strong></span>`;
         } else if (st === 'overdue') {
-          statusHtml = `<span style="color: #f97316; font-weight: 800;">⏰ #${d} - PASSOU DE 1H (Atualizar!)</span> ${timerBadge}`;
+          statusHtml = `<span style="color: #f97316; font-weight: 800;">⏰ #${d} - PASSOU DE 1H (Atualizar!) ⏱️ <strong id="timer_val_${d}">${timerStr}</strong></span>`;
         }
 
         return `
@@ -676,40 +696,8 @@
         box.innerHTML = data.logs.map(l => `<div class="log-entry">${l}</div>`).join('');
         box.scrollTop = box.scrollHeight;
         
-        // Só atualiza os badges visuais de status, sem sobrescrever o texto da caixa se o usuário estiver digitando
         if (data.statuses) {
-          const list = document.getElementById('statusList');
-          const rawText = document.getElementById('daily_deliveries_box').value;
-          const deliveries = rawText.split('\n').map(s => s.trim()).filter(Boolean);
-
-          if (deliveries.length === 0) {
-            list.innerHTML = `<div style="font-size:12px; color:#94a3b8;">Nenhuma delivery em monitoramento.</div>`;
-          } else {
-            list.innerHTML = deliveries.map(d => {
-              const stObj = data.statuses ? data.statuses[d] : null;
-              const st = (typeof stObj === 'object' && stObj !== null) ? stObj.status : (stObj || 'yellow');
-              const lastSentStr = (typeof stObj === 'object' && stObj !== null && stObj.last_sent) ? stObj.last_sent : null;
-              
-              let timerBadge = '';
-              if (lastSentStr) {
-                timerBadge = `<span style="font-size: 11px; font-weight: 700; color: #a855f7; background: rgba(168, 85, 247, 0.15); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.3);">⏱️ ${lastSentStr}</span>`;
-              }
-
-              let statusHtml = `<span>🟡 #${d} - Aguardando resposta</span> ${timerBadge}`;
-              if (st === 'purple') {
-                statusHtml = `<span>🟣 #${d} - RESPONDIDA PELA CHEP</span> ${timerBadge}`;
-              } else if (st === 'overdue') {
-                statusHtml = `<span style="color: #f97316; font-weight: 800;">⏰ #${d} - PASSOU DE 1H (Atualizar!)</span> ${timerBadge}`;
-              }
-
-              return `
-                <div class="status-badge ${st}">
-                  ${statusHtml}
-                  <button type="button" onclick="removeDelivery('${d}')" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); color: #ef4444; border-radius: 6px; padding: 2px 8px; font-weight: 700; cursor: pointer;" title="Parar monitoramento">❌</button>
-                </div>
-              `;
-            }).join('');
-          }
+          renderStatuses(data.statuses);
         }
       });
     }
