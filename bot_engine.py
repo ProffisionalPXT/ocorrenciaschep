@@ -668,6 +668,38 @@ class CHEPBotEngine:
 
             send_btn = contact_page.locator("button:has(.fa-paper-plane), button:has-text('Send'), button.btn-primary:has(svg)").first
             if await send_btn.is_visible(timeout=3000):
+                # --- MODO APROVAÇÃO VISUAL ANTES DE ENVIAR NO SERVICE DESK ---
+                shots_dir = os.path.join(os.path.dirname(__file__), "static")
+                os.makedirs(shots_dir, exist_ok=True)
+                fname = f"preview_service_desk_{delivery_number}_{int(time.time())}.png"
+                shot_file = os.path.join(shots_dir, fname)
+                await contact_page.screenshot(path=shot_file)
+                
+                self.log(f"⏳ [Service Desk] Aguardando sua aprovação visual no Painel antes de clicar em Enviar: /static/{fname}")
+                
+                approval_event = asyncio.Event()
+                self.approval_state = {
+                    "event": approval_event,
+                    "action": None,
+                    "image_url": f"/static/{fname}",
+                    "delivery": delivery_number
+                }
+
+                try:
+                    await asyncio.wait_for(approval_event.wait(), timeout=300)
+                except asyncio.TimeoutError:
+                    self.log("⏳ Tempo limite de aprovação esgotado (300s). Operação cancelada.")
+                    self.approval_state = None
+                    return "CANCELLED"
+
+                user_action = self.approval_state.get("action")
+                self.approval_state = None
+
+                if user_action != "approve":
+                    self.log("❌ Ocorrência no Service Desk CANCELADA por você no Painel!")
+                    return "CANCELLED"
+
+                self.log("✅ [Aprovação Concedida] Clicando em Enviar no Service Desk...")
                 await send_btn.click()
                 await asyncio.sleep(2)
                 self.log("✅ Resposta enviada com sucesso no Service Desk!")
