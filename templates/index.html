@@ -337,10 +337,7 @@
           <!-- DELIVERY -->
           <div class="card">
             <div class="card-title">1. Número de Delivery / Carga</div>
-            <div style="display: flex; gap: 8px;">
-              <input type="text" id="delivery" name="delivery" placeholder="Ex: 3788216684" required style="flex: 1;">
-              <button type="button" class="btn-conn" style="background: var(--accent-blue); padding: 8px 14px; font-size: 13px;" onclick="verifySingleDelivery()" title="Verificar status no Service Desk">🔍 Verificar</button>
-            </div>
+            <input type="text" id="delivery" name="delivery" placeholder="Ex: 3788216684" required>
             
             <label class="checkbox-group" style="margin-top: 12px; margin-bottom: 0;">
               <input type="checkbox" id="chk_coleta_dia" name="chk_coleta_dia" checked>
@@ -462,12 +459,16 @@
           </div>
           <textarea id="daily_deliveries_box" onchange="syncDailyDeliveriesToServer()" oninput="syncDailyDeliveriesToServer()" placeholder="Digite uma delivery por linha...">{% for d in daily_deliveries %}{{ d }}&#10;{% endfor %}</textarea>
 
+          <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+            <button type="button" class="btn-conn" style="background: #7c3aed; width: 100%; justify-content: center;" onclick="checkRepliesNow()">🔍 Verificar Agora (Monitoradas)</button>
+          </div>
+
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-wrap: wrap; gap: 8px;">
             <label class="checkbox-group" style="margin: 0;">
               <input type="checkbox" id="chk_auto_mon" onchange="toggleAutoMonitor()">
               <span style="font-size: 12px; font-weight: 700; color: var(--accent-purple);">🔔 Monitorar a cada 20 min</span>
             </label>
-            <button type="button" class="btn-conn" style="background: #7c3aed;" onclick="checkRepliesNow()">🔍 Verificar Agora</button>
+            <button type="button" class="btn-conn" style="background: var(--accent-blue);" onclick="verifySingleDelivery()" title="Verificar status apenas da delivery digitada na caixa da esquerda">🔍 Verificar</button>
           </div>
 
           <!-- PAINEL DE STATUS DAS DELIVERIES (SEM ENCHER OS LOGS) -->
