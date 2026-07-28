@@ -48,12 +48,18 @@ class CHEPBotEngine:
 
     async def save_debug_screenshot(self, page: Page, name: str, label: str):
         try:
+            # Aguarda a renderização completa antes de tirar o print
+            await page.wait_for_load_state("domcontentloaded", timeout=3000)
+        except Exception:
+            pass
+
+        try:
             shots_dir = os.path.join(os.path.dirname(__file__), "static")
             os.makedirs(shots_dir, exist_ok=True)
             fname = f"{name}.png"
             shot_file = os.path.join(shots_dir, fname)
             await page.screenshot(path=shot_file)
-            self.log(f"📸 [{label}]: <a href='/static/{fname}' target='_blank' style='color:#38bdf8; font-weight:bold; text-decoration:underline;'>🔍 Visualizar {name}.png</a>")
+            self.log(f"📸 [{label}]: <a href='/static/{fname}' target='_blank' style='color:#38bdf8; font-weight:bold; text-decoration:underline;'>Visualizar {name}.png</a>")
         except Exception as e:
             self.log(f"⚠️ Erro ao salvar print {name}: {e}")
 
@@ -386,19 +392,31 @@ class CHEPBotEngine:
                 await self.save_debug_screenshot(page, "debug_06_modal_aberta", "Print 6 - Modal Aberta")
                 self.log("📝 [3/6] Preenchendo os campos da Modal (Processo, Tipo de Nota e Assunto)...")
 
-                # 2. SELEÇÃO DO PROCESSO* (Aguardar Visibilidade + Clique Forçado + Teclado + Enter)
+                # 2. SELEÇÃO DO PROCESSO*
                 try:
-                    await page.wait_for_timeout(3000)  # Aguarda 3 segundos para o dropdown carregar na nuvem
-                    proc_elem = modal.locator("ng-select, [name='process'], .ng-select-container").first
-                    await proc_elem.wait_for(state="visible", timeout=10000)
-                    await proc_elem.click(force=True)
+                    # Encontra a caixinha do ng-select de Processo
+                    proc_container = modal.locator("ng-select").first
+                    if not await proc_container.is_visible(timeout=2000):
+                        proc_container = page.locator("ng-select").first
+
+                    # Tenta clicar no wrapper da seta ou na caixa principal do ng-select
+                    arrow = proc_container.locator(".ng-arrow-wrapper, .ng-select-container").first
+                    if await arrow.is_visible(timeout=2000):
+                        await arrow.click(force=True)
+                    else:
+                        await proc_container.click(force=True)
+                    
                     await asyncio.sleep(0.5)
 
-                    # Tenta digitar via teclado diretamente no campo focado
-                    await page.keyboard.type("LATAM - Brazil - Logistics", delay=50)
+                    # Digita a palavra chave para filtrar no dropdown do Angular
+                    await page.keyboard.type("Logistics", delay=50)
                     await asyncio.sleep(0.5)
 
+                    # Seleciona a opção LATAM - Brazil - Logistics
                     opt_log = page.locator(".ng-option").filter(has_text="Logistics").first
+                    if not await opt_log.is_visible(timeout=1500):
+                        opt_log = page.get_by_text("LATAM - Brazil - Logistics").first
+
                     if await opt_log.is_visible(timeout=1500):
                         await opt_log.click(force=True)
                     else:
@@ -410,21 +428,31 @@ class CHEPBotEngine:
 
                 await page.wait_for_timeout(2000)  # Aguarda 2 segundos entre as seleções
 
-                # 3. SELEÇÃO DO TIPO DE NOTA* (Aguardar Visibilidade + Clique Forçado + Teclado + Enter)
+                # 3. SELEÇÃO DO TIPO DE NOTA*
                 try:
                     self.log(f"   -> Preenchendo Tipo de Nota: '{note_type}'...")
-                    note_elem = modal.locator("ng-select[name='noteType'], ng-select").nth(1)
-                    await note_elem.wait_for(state="visible", timeout=10000)
-                    await note_elem.click(force=True)
+                    
+                    # O ng-select do Tipo de Nota é o segundo ng-select dentro da modal
+                    note_container = modal.locator("ng-select").nth(1)
+                    if not await note_container.is_visible(timeout=2000):
+                        note_container = page.locator("ng-select").nth(1)
+
+                    arrow_note = note_container.locator(".ng-arrow-wrapper, .ng-select-container").first
+                    if await arrow_note.is_visible(timeout=2000):
+                        await arrow_note.click(force=True)
+                    else:
+                        await note_container.click(force=True)
+
                     await asyncio.sleep(0.5)
 
-                    await page.keyboard.type(note_type, delay=50)
+                    # Digita a palavra-chave no campo de pesquisa
+                    clean_search = note_type.split()[0] if " " in note_type else note_type
+                    await page.keyboard.type(clean_search, delay=50)
                     await asyncio.sleep(0.5)
 
                     opt_note = page.locator(".ng-option").filter(has_text=note_type).first
                     if not await opt_note.is_visible(timeout=1500):
-                        clean_part = note_type.split()[-1] if " " in note_type else note_type
-                        opt_note = page.locator(".ng-option").filter(has_text=clean_part).first
+                        opt_note = page.locator(".ng-option").filter(has_text=clean_search).first
 
                     if await opt_note.is_visible(timeout=1500):
                         await opt_note.click(force=True)
