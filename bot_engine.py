@@ -367,35 +367,43 @@ class CHEPBotEngine:
                     
                     await asyncio.sleep(2.5)
 
-                self.log("📝 [3/6] Clicando no Processo...")
+                self.log("📝 [3/6] Preenchendo o campo Processo de forma blindada...")
 
-                # 1. PROCESSO* (.ng-arrow-wrapper.first())
-                arrow1 = modal.locator(".ng-arrow-wrapper").first
-                if not await arrow1.is_visible(timeout=2000):
-                    arrow1 = page.locator(".ng-arrow-wrapper").first
+                try:
+                    # 1. Clica no container do Processo usando o texto do rótulo visível na tela
+                    proc_select = modal.locator("ng-select").filter(has_text="Processo").first
+                    if not await proc_select.is_visible(timeout=2000):
+                        proc_select = page.locator("ng-select").filter(has_text="Processo").first
 
-                await arrow1.click(force=True)
-                await asyncio.sleep(0.8)
+                    arrow = proc_select.locator(".ng-arrow-wrapper").first
+                    if not await arrow.is_visible(timeout=1500):
+                        arrow = modal.locator(".ng-arrow-wrapper").first
 
-                opt_logistics = page.locator(".ng-option").filter(has_text="Logistics").first
-                if not await opt_logistics.is_visible(timeout=1500):
-                    opt_logistics = page.get_by_text("LATAM - Brazil - Logistics").first
+                    await arrow.click(force=True)
+                    await page.wait_for_timeout(400)
 
-                no_items = page.get_by_text("No items found")
+                    # 2. Digita o nome do processo diretamente no input que se abre
+                    await page.keyboard.type("LATAM - Brazil - Logistics", delay=100)
+                    await page.wait_for_timeout(600)
 
-                is_option_valid = False
-                if await opt_logistics.is_visible(timeout=2000):
-                    is_disabled = await opt_logistics.evaluate("el => el.classList.contains('ng-option-disabled') || el.getAttribute('aria-disabled') === 'true'")
-                    if not is_disabled:
-                        is_option_valid = True
+                    # 3. Clica na opção correspondente que apareceu na lista
+                    opt = page.get_by_role("option", name="LATAM - Brazil - Logistics")
+                    if not await opt.is_visible(timeout=1500):
+                        opt = page.get_by_role("option", name="Logistics")
+                    if not await opt.is_visible(timeout=1500):
+                        opt = page.locator(".ng-option").filter(has_text="Logistics").first
 
-                if is_option_valid and not await no_items.is_visible(timeout=500):
-                    await opt_logistics.click(force=True)
-                    self.log("   🟢 [OK] Processo definido para: 'LATAM - Brazil - Logistics'!")
+                    if await opt.is_visible(timeout=1500):
+                        await opt.click(force=True)
+                        self.log("   🟢 [OK] Processo selecionado: 'LATAM - Brazil - Logistics'!")
+                    else:
+                        await page.keyboard.press("Enter")
+                        self.log("   🟢 [OK] Processo confirmado via Enter!")
+
                     modal_filled_success = True
                     break
-                else:
-                    self.log("   ⚠️ 'No items found' ou opção desabilitada! Clicando em '×Close' para fechar e tentar novamente...")
+                except Exception as e_proc:
+                    self.log(f"   ⚠️ Aviso ao preencher Processo: {e_proc}")
                     if attempt < max_modal_attempts:
                         close_x = page.get_by_text('×Close')
                         if not await close_x.is_visible(timeout=1000):
@@ -406,74 +414,12 @@ class CHEPBotEngine:
                         await close_x.click(force=True)
                         await asyncio.sleep(1.0)
                         try:
-                            await create_note_btn.click(timeout=15000)
+                            await modal.wait_for(state="hidden", timeout=3000)
                         except Exception:
-                            await create_note_btn.click(force=True, timeout=15000)
-                        
-                        await asyncio.sleep(2.5)
-
-                    self.log("📝 [3/6] Clicando no Processo...")
-
-                    # 1. PROCESSO* (.ng-arrow-wrapper.first())
-                    arrow1 = modal.locator(".ng-arrow-wrapper").first
-                    if not await arrow1.is_visible(timeout=2000):
-                        arrow1 = page.locator(".ng-arrow-wrapper").first
-
-                    await arrow1.click(force=True)
-                    await asyncio.sleep(0.8)
-
-                    opt_logistics = page.locator(".ng-option").filter(has_text="Logistics").first
-                    if not await opt_logistics.is_visible(timeout=1500):
-                        opt_logistics = page.get_by_text("LATAM - Brazil - Logistics").first
-
-                    no_items = page.get_by_text("No items found")
-
-                    is_option_valid = False
-                    if await opt_logistics.is_visible(timeout=2000):
-                        is_disabled = await opt_logistics.evaluate("el => el.classList.contains('ng-option-disabled') || el.getAttribute('aria-disabled') === 'true'")
-                        if not is_disabled:
-                            is_option_valid = True
-
-                    if is_option_valid and not await no_items.is_visible(timeout=500):
-                        await opt_logistics.click(force=True)
-                        self.log("   🟢 [OK] Processo selecionado: 'LATAM - Brazil - Logistics'!")
-                        await asyncio.sleep(0.5)
-                        
-                        # --- Clicar na seta para ABRIR novamente o dropdown de Processo ---
-                        self.log("   🔽 Clicando na seta para abrir a aba de Processos novamente...")
-                        await arrow1.click(force=True)
-                        await asyncio.sleep(0.5)
-                        
-                        # --- Clicar na seta para FECHAR a aba de Processos ---
-                        self.log("   🔼 Clicando na seta para fechar a aba de Processos...")
-                        await arrow1.click(force=True)
-                        await asyncio.sleep(0.5)
-                        
-                        # --- Pressionar TAB para mover o foco para o Tipo de Nota ---
-                        self.log("   ⌨️ Pressionando TAB para mover o foco para Tipo de Nota...")
-                        await page.keyboard.press('Tab')
-                        await asyncio.sleep(0.5)
-
-                        modal_filled_success = True
-                        break
+                            pass
+                        await asyncio.sleep(2.0)  # Cortina cinza sumir!
                     else:
-                        self.log("   ⚠️ 'No items found' ou opção desabilitada! Clicando em '×Close' para fechar e tentar novamente...")
-                        if attempt < max_modal_attempts:
-                            close_x = page.get_by_text('×Close')
-                            if not await close_x.is_visible(timeout=1000):
-                                close_x = page.get_by_text('×')
-                            if not await close_x.is_visible(timeout=1000):
-                                close_x = modal.locator('.modal-header button.close, button.close, [aria-label="Close"]').first
-                            
-                            await close_x.click(force=True)
-                            await asyncio.sleep(1.0)
-                            try:
-                                await modal.wait_for(state="hidden", timeout=3000)
-                            except Exception:
-                                pass
-                            await asyncio.sleep(2.0)  # Cortina cinza sumir!
-                        else:
-                            self.log("❌ Limite de tentativas atingido.")
+                        self.log("❌ Limite de tentativas atingido.")
 
             # --- 1. Seleção do Tipo de Nota ---
             self.log(f"   -> Selecionando Tipo de Nota: '{note_type}'...")
