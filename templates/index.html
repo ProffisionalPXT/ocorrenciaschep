@@ -337,7 +337,10 @@
           <!-- DELIVERY -->
           <div class="card">
             <div class="card-title">1. Número de Delivery / Carga</div>
-            <input type="text" id="delivery" name="delivery" placeholder="Ex: 3788216684" required>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="delivery" name="delivery" placeholder="Ex: 3788216684" required style="flex: 1;">
+              <button type="button" class="btn-conn" style="background: var(--accent-blue); padding: 8px 14px; font-size: 13px;" onclick="verifySingleDelivery()" title="Verificar status no Service Desk">🔍 Verificar</button>
+            </div>
             
             <label class="checkbox-group" style="margin-top: 12px; margin-bottom: 0;">
               <input type="checkbox" id="chk_coleta_dia" name="chk_coleta_dia" checked>
@@ -693,6 +696,11 @@
       const deliveries = rawText.split('\n').map(s => s.trim()).filter(Boolean);
       const profile = document.getElementById('profile').value;
 
+      if (deliveries.length === 0) {
+        alert('Nenhuma delivery cadastrada na lista de Deliveries Monitoradas!');
+        return;
+      }
+
       fetch('/api/check_replies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -702,7 +710,30 @@
         if (data.answered_deliveries && data.answered_deliveries.length > 0) {
           alert(`🚨 RESPOSTA DETECTADA!\nPerfil: ${profile}\nDeliveries respondidas (Roxo):\n${data.answered_deliveries.join(', ')}`);
         } else {
-          alert(`🟢 Perfil: ${profile}\nNenhuma nova resposta roxa encontrada.`);
+          alert(`🟢 Perfil: ${profile}\nNenhuma nova resposta roxa encontrada na lista monitorada.`);
+        }
+      });
+    }
+
+    function verifySingleDelivery() {
+      const deliveryVal = document.getElementById('delivery').value.trim();
+      const profile = document.getElementById('profile').value;
+
+      if (!deliveryVal) {
+        alert('Por favor, digite o número da Delivery no campo 1 para verificar!');
+        document.getElementById('delivery').focus();
+        return;
+      }
+
+      fetch('/api/check_replies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deliveries: [deliveryVal], profile: profile })
+      }).then(res => res.json()).then(data => {
+        if (data.answered_deliveries && data.answered_deliveries.length > 0) {
+          alert(`🚨 RESPOSTA DETECTADA para #${deliveryVal}!\nPerfil: ${profile}`);
+        } else {
+          alert(`🟢 Perfil: ${profile}\nDelivery #${deliveryVal} sem resposta roxa pendente.`);
         }
       });
     }
