@@ -170,43 +170,44 @@ class CHEPBotEngine:
             email, password = self.get_credentials_for_profile(profile_name)
             
             # 1. Procura o campo de e-mail com seletores abrangentes
-            email_input = page.get_by_role('textbox', name='Email address')
+            email_input = page.locator("input[placeholder*='e-mail'], input[placeholder*='Your e-mail'], input[placeholder*='e-mail'], input[name='login'], input#login, input[name='username'], input[name='identifier'], input[name='email'], input[type='email']").first
             if not await email_input.is_visible(timeout=1500):
-                email_input = page.locator("input[name='username'], input[name='identifier'], input[name='email'], input[placeholder*='e-mail'], input[placeholder*='Your e-mail'], input[name='login'], input#login, input#username, input[type='email'], input[type='text']").first
+                email_input = page.get_by_role('textbox', name='Email address')
+            if not await email_input.is_visible(timeout=1500):
+                email_input = page.get_by_placeholder("Your e-mail")
 
             if await email_input.is_visible(timeout=3000):
                 self.log(f"🔑 Tela de login identificada! Efetuando login para {profile_name} ({email})...")
-                await email_input.click()
+                await email_input.click(force=True)
                 await email_input.fill("")
                 await email_input.fill(email)
-                await email_input.press("Tab")
 
                 # 2. Preenche a senha
-                pass_input = page.locator("input[name='password'], input[type='password']").first
+                pass_input = page.locator("input[placeholder*='password'], input[placeholder*='Your password'], input[name='password'], input[type='password']").first
+                if not await pass_input.is_visible(timeout=1500):
+                    pass_input = page.get_by_placeholder("Your password")
                 if not await pass_input.is_visible(timeout=1500):
                     pass_input = page.get_by_role('textbox', name='Password')
 
                 if await pass_input.is_visible(timeout=3000):
                     if not password:
-                        self.log(f"⚠️ ATENÇÃO: A senha do perfil {profile_name} está VAZIA! Defina CHEP_PASSWORD_{'PURM3' if 'PURM3' in profile_name else 'PURM2'} no Render.")
+                        self.log(f"⚠️ ATENÇÃO: A senha do perfil {profile_name} está VAZIA! Defina CHEP_PASSWORD_{'PURM3' if 'PURM3' in profile_name else 'PURM2'} no .env ou no Render.")
                     
-                    # Foca no input diretamente para evitar clicar no ícone do olho
-                    await pass_input.focus()
+                    await pass_input.click(force=True)
                     await pass_input.fill("")
                     await pass_input.fill(password)
-                    await pass_input.press("Tab")
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
                 else:
                     self.log("⚠️ Campo de senha não encontrado na tela de login!")
 
-                # 3. Submete o formulário clicando em Continue ou Submit
-                btn_submit = page.locator("button:has-text('Continue'), input[value='Continue'], button:has-text('Sign in'), button:has-text('Log in'), button[type='submit'], input[type='submit']").first
+                # 3. Submete o formulário clicando em Sign in / Continue ou Enter
+                btn_submit = page.locator("button:has-text('Sign in'), button:has-text('Log in'), button:has-text('Continue'), input[value='Continue'], button[type='submit'], input[type='submit']").first
                 if await btn_submit.is_visible(timeout=2000):
-                    await btn_submit.click()
+                    await btn_submit.click(force=True)
                 elif await pass_input.is_visible():
                     await pass_input.press("Enter")
                 
-                await asyncio.sleep(5)
+                await asyncio.sleep(4)
 
         except Exception as e:
             self.log(f"⚠️ Aviso no processo de login: {e}")
