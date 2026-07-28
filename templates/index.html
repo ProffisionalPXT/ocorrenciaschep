@@ -758,9 +758,11 @@
       const active = document.getElementById('chk_auto_mon').checked;
       if (active) {
         alert('🔔 Monitoramento automático ativado (a cada 20 min)!');
-        // Não executa pesquisa imediata ao marcar a caixa; apenas agenda a rotina a cada 20 min
         if (monitorTimer) clearInterval(monitorTimer);
-        monitorTimer = setInterval(checkRepliesNow, 1200000);
+        monitorTimer = setInterval(() => {
+          console.log("⏰ [Timer 20 min] Executando verificação automática das deliveries monitoradas...");
+          checkRepliesNow();
+        }, 1200000);
       } else {
         if (monitorTimer) clearInterval(monitorTimer);
         alert('🔕 Monitoramento automático desativado.');
@@ -820,7 +822,10 @@
 
       // Se a caixa "Monitorar a cada 20 min" estiver marcada na abertura da página, inicia o timer automático
       if (document.getElementById('chk_auto_mon').checked) {
-        monitorTimer = setInterval(checkRepliesNow, 1200000);
+        monitorTimer = setInterval(() => {
+          console.log("⏰ [Timer 20 min] Executando verificação automática das deliveries monitoradas...");
+          checkRepliesNow();
+        }, 1200000);
       }
     });
 
