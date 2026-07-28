@@ -262,11 +262,24 @@ def handle_messages():
         save_json(MESSAGES_FILE, messages)
         return jsonify({"success": True, "messages": messages})
 
+import webbrowser
+import threading
+
 if __name__ == "__main__":
     local_ip = get_local_ip()
     print("=" * 65)
     print("CHEP BOT WEB SERVER INICIADO!")
-    print(f"Acese pelo PC:      http://localhost:5000")
-    print(f"Acese pelo Celular: http://{local_ip}:5000")
+    print(f"Acesse pelo PC:      http://localhost:5000")
+    print(f"Acesse pelo Celular: http://{local_ip}:5000")
     print("=" * 65)
+
+    if os.getenv("RENDER") is None:
+        def _open():
+            time.sleep(1.5)
+            try:
+                webbrowser.open("http://localhost:5000")
+            except Exception:
+                pass
+        threading.Thread(target=_open, daemon=True).start()
+
     app.run(host="0.0.0.0", port=5000, debug=False)

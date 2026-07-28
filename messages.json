@@ -66,5 +66,14 @@
     "is_sem_paletes": true,
     "default_nome": "Leandro",
     "text": "Veiculo no D aguardando para carregar, onde o motorista foi informado pelo Sr. Leandro que o D não tem paletes para carregar.\n\nFavor, verificar e como proceder."
+  },
+  {
+    "id": "aguardando_descarregar_cs",
+    "title": "AGUARDANDO DESCARREGAR NO CS (Com Previsão)",
+    "note_type": "SAP (Not App) LOCALIZAÇÃO DO VEÍCULO",
+    "is_cs_descarregar": true,
+    "default_delivery_cs": "3787020202",
+    "default_horario": "10",
+    "text": "Veiculo no CS aguardando descarregar a delivery 3787020202, para seguir para proxima operação. Previsão de chegada as 10h."
   }
 ]

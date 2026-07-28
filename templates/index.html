@@ -421,6 +421,19 @@
                   <label>Nome do Responsável / Sr.:</label>
                   <input type="text" id="sr_nome" value="Leandro" placeholder="Ex: Leandro, Carlos, etc." oninput="updateLinhaPreview()">
                 </div>
+
+                <div id="cs_descarregar_subfields" style="display: none;">
+                  <div class="criacao-linha-grid">
+                    <div>
+                      <label>Nº Delivery Descarga:</label>
+                      <input type="text" id="cs_delivery" value="3787020202" placeholder="Ex: 3787020202" oninput="updateLinhaPreview()">
+                    </div>
+                    <div>
+                      <label>Horário Previsão (h):</label>
+                      <input type="text" id="cs_horario" value="10" placeholder="Ex: 10, 14:30, etc." oninput="updateLinhaPreview()">
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <label style="margin-top: 10px;">Texto da Mensagem:</label>
@@ -523,6 +536,7 @@
       const text = opt.getAttribute('data-text');
       const isLinha = opt.getAttribute('data-linha') === 'true' || sel.value.includes('criacao_de_linha');
       const isSemPaletes = sel.value === 'sem_paletes_no_d';
+      const isCSDescarregar = sel.value === 'aguardando_descarregar_cs';
 
       if (type) document.getElementById('note_type').value = type;
       if (text) document.getElementById('location_text').value = text;
@@ -536,18 +550,31 @@
       const panel = document.getElementById('criacao_linha_panel');
       const linhaFields = document.getElementById('linha_subfields');
       const semPaletesFields = document.getElementById('sem_paletes_subfields');
+      const csFields = document.getElementById('cs_descarregar_subfields');
       const title = document.getElementById('panel_title_linha');
 
-      if (isLinha || isSemPaletes) {
+      if (isLinha || isSemPaletes || isCSDescarregar) {
         panel.style.display = 'block';
         if (isSemPaletes) {
           title.innerText = '👤 Editar Nome do Responsável:';
           linhaFields.style.display = 'none';
           semPaletesFields.style.display = 'block';
+          csFields.style.display = 'none';
+        } else if (isCSDescarregar) {
+          title.innerText = '🚚 Editar Dados de Descarga no CS:';
+          linhaFields.style.display = 'none';
+          semPaletesFields.style.display = 'none';
+          csFields.style.display = 'block';
+          
+          const currentDeliv = document.getElementById('delivery').value.trim();
+          if (currentDeliv) {
+            document.getElementById('cs_delivery').value = currentDeliv;
+          }
         } else {
           title.innerText = '⚙️ Gerador de Criação de Linhas:';
           linhaFields.style.display = 'block';
           semPaletesFields.style.display = 'none';
+          csFields.style.display = 'none';
         }
         updateLinhaPreview();
       } else {
@@ -578,6 +605,10 @@
       } else if (sel === 'sem_paletes_no_d') {
         const nome = document.getElementById('sr_nome').value.trim() || 'Leandro';
         document.getElementById('location_text').value = `Veiculo no D aguardando para carregar, onde o motorista foi informado pelo Sr. ${nome} que o D não tem paletes para carregar.\n\nFavor, verificar e como proceder.`;
+      } else if (sel === 'aguardando_descarregar_cs') {
+        const deliv = document.getElementById('cs_delivery').value.trim() || '3787020202';
+        const hor = document.getElementById('cs_horario').value.trim() || '10';
+        document.getElementById('location_text').value = `Veiculo no CS aguardando descarregar a delivery ${deliv}, para seguir para proxima operação. Previsão de chegada as ${hor}h.`;
       }
     }
 
