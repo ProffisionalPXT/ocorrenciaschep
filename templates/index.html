@@ -467,6 +467,7 @@
             <label class="checkbox-group" style="margin: 0;">
               <input type="checkbox" id="chk_auto_mon" onchange="toggleAutoMonitor()">
               <span style="font-size: 12px; font-weight: 700; color: var(--accent-purple);">🔔 Monitorar a cada 20 min</span>
+              <span id="countdown_badge" style="display: none; font-size: 11px; font-weight: 800; color: #c084fc; background: rgba(192, 132, 252, 0.15); padding: 2px 8px; border-radius: 12px; border: 1px solid rgba(192, 132, 252, 0.4); margin-left: 6px;">⏱️ 20:00</span>
             </label>
             <button type="button" class="btn-conn" style="background: var(--accent-blue);" onclick="verifySingleDelivery()" title="Verificar status apenas da delivery digitada na caixa da esquerda">🔍 Verificar</button>
           </div>
@@ -644,10 +645,21 @@
       }
 
       list.innerHTML = deliveries.map(d => {
-        const st = statuses[d] || 'yellow';
-        const statusHtml = st === 'purple'
-          ? `<span>🟣 #${d} - RESPONDIDA PELA CHEP</span>`
-          : `<span>🟡 #${d} - Aguarding resposta</span>`;
+        const stObj = statuses ? statuses[d] : null;
+        const st = (typeof stObj === 'object' && stObj !== null) ? stObj.status : (stObj || 'yellow');
+        const lastSentStr = (typeof stObj === 'object' && stObj !== null && stObj.last_sent) ? stObj.last_sent : null;
+        
+        let timerBadge = '';
+        if (lastSentStr) {
+          timerBadge = `<span style="font-size: 11px; font-weight: 700; color: #a855f7; background: rgba(168, 85, 247, 0.15); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.3);">⏱️ ${lastSentStr}</span>`;
+        }
+
+        let statusHtml = `<span>🟡 #${d} - Aguardando resposta</span> ${timerBadge}`;
+        if (st === 'purple') {
+          statusHtml = `<span>🟣 #${d} - RESPONDIDA PELA CHEP</span> ${timerBadge}`;
+        } else if (st === 'overdue') {
+          statusHtml = `<span style="color: #f97316; font-weight: 800;">⏰ #${d} - PASSOU DE 1H (Atualizar!)</span> ${timerBadge}`;
+        }
 
         return `
           <div class="status-badge ${st}">
@@ -762,17 +774,46 @@
       });
     }
 
+    let countdownSeconds = 1200;
+    let countdownInterval = null;
+
+    function startVisualCountdown() {
+      const badge = document.getElementById('countdown_badge');
+      if (badge) badge.style.display = 'inline-block';
+      countdownSeconds = 1200;
+      
+      if (countdownInterval) clearInterval(countdownInterval);
+      countdownInterval = setInterval(() => {
+        countdownSeconds--;
+        if (countdownSeconds <= 0) {
+          countdownSeconds = 1200;
+        }
+        const m = Math.floor(countdownSeconds / 60).toString().padStart(2, '0');
+        const s = (countdownSeconds % 60).toString().padStart(2, '0');
+        if (badge) badge.innerText = `⏱️ ${m}:${s}`;
+      }, 1000);
+    }
+
+    function stopVisualCountdown() {
+      const badge = document.getElementById('countdown_badge');
+      if (badge) badge.style.display = 'none';
+      if (countdownInterval) clearInterval(countdownInterval);
+    }
+
     function toggleAutoMonitor() {
       const active = document.getElementById('chk_auto_mon').checked;
       if (active) {
         alert('🔔 Monitoramento automático ativado (a cada 20 min)!');
         if (monitorTimer) clearInterval(monitorTimer);
+        startVisualCountdown();
         monitorTimer = setInterval(() => {
-          console.log("⏰ [Timer 20 min] Executando verificação automática das deliveries monitoradas...");
+          console.log("⏰ [Timer 20 min] Executando verificação automática...");
+          startVisualCountdown();
           checkRepliesNow();
         }, 1200000);
       } else {
         if (monitorTimer) clearInterval(monitorTimer);
+        stopVisualCountdown();
         alert('🔕 Monitoramento automático desativado.');
       }
     }
