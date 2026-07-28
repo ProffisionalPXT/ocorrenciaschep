@@ -223,24 +223,27 @@ def resolve_approval():
 def check_replies():
     data = request.json or {}
     profile = data.get("profile", "BR__LH_PURM2")
-    daily_deliveries = load_json(DAILY_DELIVERIES_FILE, default=[])
+    deliveries_to_check = data.get("deliveries")
+    if not deliveries_to_check:
+        deliveries_to_check = load_json(DAILY_DELIVERIES_FILE, default=[])
     
-    if not daily_deliveries:
-        return jsonify({"success": True, "message": "Nenhuma delivery cadastrada hoje.", "answered": []})
+    if not deliveries_to_check:
+        return jsonify({"success": True, "message": "Nenhuma delivery para verificar.", "answered_deliveries": [], "statuses": delivery_statuses})
 
-    def run_check():
-        append_log(f"🔍 [Monitor] Verificando respostas pendentes para {len(daily_deliveries)} deliveries no perfil {profile}...")
+    append_log(f"🔍 [Monitor] Verificando respostas pendentes no Service Desk ({profile})...")
+    try:
         fut = asyncio.run_coroutine_threadsafe(
-            engine.check_pending_carrier_replies(daily_deliveries, profile_name=profile),
+            engine.check_pending_carrier_replies(deliveries_to_check, profile_name=profile),
             async_loop
         )
         answered = fut.result(timeout=120)
         for deliv in answered:
             delivery_statuses[deliv] = "purple"
             append_log(f"🚨 Delivery #{deliv} atualizada para ROXO!")
-
-    threading.Thread(target=run_check, daemon=True).start()
-    return jsonify({"success": True, "message": "Verificação de respostas iniciada em segundo plano!"})
+        return jsonify({"success": True, "answered_deliveries": answered, "statuses": delivery_statuses})
+    except Exception as e:
+        append_log(f"⚠️ Erro ao verificar respostas: {e}")
+        return jsonify({"success": False, "error": str(e), "answered_deliveries": [], "statuses": delivery_statuses})
 
 @app.route("/api/drivers", methods=["GET", "POST", "DELETE"])
 def handle_drivers():
