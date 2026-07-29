@@ -16,6 +16,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 MESSAGES_FILE = os.path.join(BASE_DIR, "messages.json")
 DAILY_DELIVERIES_FILE = os.path.join(BASE_DIR, "daily_deliveries.json")
+LAST_CHECK_FILE = os.path.join(BASE_DIR, "last_check_time.json")
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
@@ -78,7 +79,8 @@ def serve_screenshot(filename):
     shots_dir = os.path.join(BASE_DIR, "screenshots")
     return send_from_directory(shots_dir, filename)
 
-last_check_time = time.time()
+saved_time_obj = load_json(LAST_CHECK_FILE, default={})
+last_check_time = saved_time_obj.get("last_check_time", time.time())
 
 @app.route("/api/logs")
 def get_logs():
@@ -239,6 +241,7 @@ def check_replies():
 
     global last_check_time
     last_check_time = time.time()
+    save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
     append_log(f"🔍 [Monitor] Verificando respostas pendentes no Service Desk ({profile})...")
     try:
         fut = asyncio.run_coroutine_threadsafe(
