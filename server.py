@@ -78,9 +78,16 @@ def serve_screenshot(filename):
     shots_dir = os.path.join(BASE_DIR, "screenshots")
     return send_from_directory(shots_dir, filename)
 
+last_check_time = time.time()
+
 @app.route("/api/logs")
 def get_logs():
-    return jsonify({"logs": logs_list, "statuses": delivery_statuses})
+    return jsonify({
+        "logs": logs_list,
+        "statuses": delivery_statuses,
+        "last_check_time": last_check_time,
+        "server_time": time.time()
+    })
 
 @app.route("/api/connect_chrome", methods=["POST"])
 def connect_chrome():
@@ -230,6 +237,8 @@ def check_replies():
     if not deliveries_to_check:
         return jsonify({"success": True, "message": "Nenhuma delivery para verificar.", "answered_deliveries": [], "statuses": delivery_statuses})
 
+    global last_check_time
+    last_check_time = time.time()
     append_log(f"🔍 [Monitor] Verificando respostas pendentes no Service Desk ({profile})...")
     try:
         fut = asyncio.run_coroutine_threadsafe(

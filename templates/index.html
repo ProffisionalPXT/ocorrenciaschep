@@ -636,28 +636,32 @@
       fetchLogs();
     }
 
-    const deliveryTimers = {};
-
-    function getFormattedTimer(d) {
-      if (!deliveryTimers[d]) {
-        deliveryTimers[d] = 1200; // 20 minutos por padrão
-      }
-      const m = Math.floor(deliveryTimers[d] / 60).toString().padStart(2, '0');
-      const s = (deliveryTimers[d] % 60).toString().padStart(2, '0');
-      return `${m}:${s}`;
-    }
+    let globalLastCheckTime = 0;
+    let globalServerTime = 0;
 
     setInterval(() => {
       const rawText = document.getElementById('daily_deliveries_box').value;
       const deliveries = rawText.split('\n').map(s => s.trim()).filter(Boolean);
+
+      let remainingSec = 1200;
+      if (globalLastCheckTime > 0 && globalServerTime > 0) {
+        const elapsed = (Date.now() / 1000) - globalLastCheckTime;
+        remainingSec = Math.max(0, 1200 - Math.floor(elapsed % 1200));
+      }
+
+      const m = Math.floor(remainingSec / 60).toString().padStart(2, '0');
+      const s = (remainingSec % 60).toString().padStart(2, '0');
+      const formatted = `${m}:${s}`;
+
       deliveries.forEach(d => {
-        if (!deliveryTimers[d]) deliveryTimers[d] = 1200;
-        deliveryTimers[d]--;
-        if (deliveryTimers[d] <= 0) deliveryTimers[d] = 1200;
-        
         const el = document.getElementById(`timer_val_${d}`);
-        if (el) el.innerText = getFormattedTimer(d);
+        if (el) el.innerText = formatted;
       });
+
+      const badge = document.getElementById('countdown_badge');
+      if (badge && document.getElementById('chk_auto_mon').checked) {
+        badge.innerText = `⏱️ ${formatted}`;
+      }
     }, 1000);
 
     function renderStatuses(statuses) {
@@ -670,11 +674,19 @@
         return;
       }
 
+      let remainingSec = 1200;
+      if (globalLastCheckTime > 0 && globalServerTime > 0) {
+        const elapsed = (Date.now() / 1000) - globalLastCheckTime;
+        remainingSec = Math.max(0, 1200 - Math.floor(elapsed % 1200));
+      }
+      const m = Math.floor(remainingSec / 60).toString().padStart(2, '0');
+      const s = (remainingSec % 60).toString().padStart(2, '0');
+      const timerStr = `${m}:${s}`;
+
       list.innerHTML = deliveries.map(d => {
         const stObj = statuses ? statuses[d] : null;
         const st = (typeof stObj === 'object' && stObj !== null) ? stObj.status : (stObj || 'yellow');
         const lastSentStr = (typeof stObj === 'object' && stObj !== null && stObj.last_sent) ? stObj.last_sent : '';
-        const timerStr = getFormattedTimer(d);
 
         let statusHtml = `<span>🟡 #${d} - ⏱️ Próximo em: <strong id="timer_val_${d}">${timerStr}</strong> ${lastSentStr ? '('+lastSentStr+')' : ''}</span>`;
         if (st === 'purple') {
@@ -698,6 +710,9 @@
         box.innerHTML = data.logs.map(l => `<div class="log-entry">${l}</div>`).join('');
         box.scrollTop = box.scrollHeight;
         
+        if (data.last_check_time) globalLastCheckTime = data.last_check_time;
+        if (data.server_time) globalServerTime = data.server_time;
+
         if (data.statuses) {
           renderStatuses(data.statuses);
         }
