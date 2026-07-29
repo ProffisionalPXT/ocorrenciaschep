@@ -652,7 +652,7 @@
 
       if (remainingSec === 0 && !window.autoCheckingActive) {
         window.autoCheckingActive = true;
-        checkRepliesNow();
+        checkRepliesNow(false);
         setTimeout(() => { window.autoCheckingActive = false; }, 5000);
       }
 
@@ -730,13 +730,13 @@
     }
     setInterval(fetchLogs, 2000);
 
-    function checkRepliesNow() {
+    function checkRepliesNow(isManual = true) {
       const rawText = document.getElementById('daily_deliveries_box').value;
       const deliveries = rawText.split('\n').map(s => s.trim()).filter(Boolean);
       const profile = document.getElementById('profile').value;
 
       if (deliveries.length === 0) {
-        alert('Nenhuma delivery cadastrada na lista de Deliveries Monitoradas!');
+        if (isManual) alert('Nenhuma delivery cadastrada na lista de Deliveries Monitoradas!');
         return;
       }
 
@@ -746,10 +746,12 @@
         body: JSON.stringify({ deliveries: deliveries, profile: profile })
       }).then(res => res.json()).then(data => {
         if (data.statuses) renderStatuses(data.statuses);
-        if (data.answered_deliveries && data.answered_deliveries.length > 0) {
-          alert(`🚨 RESPOSTA DETECTADA!\nPerfil: ${profile}\nDeliveries respondidas (Roxo):\n${data.answered_deliveries.join(', ')}`);
-        } else {
-          alert(`🟢 Perfil: ${profile}\nNenhuma nova resposta roxa encontrada na lista monitorada.`);
+        if (isManual) {
+          if (data.answered_deliveries && data.answered_deliveries.length > 0) {
+            alert(`🚨 RESPOSTA DETECTADA!\nPerfil: ${profile}\nDeliveries respondidas (Roxo):\n${data.answered_deliveries.join(', ')}`);
+          } else {
+            alert(`🟢 Perfil: ${profile}\nNenhuma nova resposta roxa encontrada na lista monitorada.`);
+          }
         }
       });
     }
