@@ -640,6 +640,9 @@
     let globalLastCheckTime = 0;
     let globalServerTime = 0;
 
+    // Garante primeira busca dos logs para ler globalLastCheckTime imediatamente ao carregar a página
+    fetchLogs();
+
     setInterval(() => {
       const rawText = document.getElementById('daily_deliveries_box').value;
       const deliveries = rawText.split('\n').map(s => s.trim()).filter(Boolean);
