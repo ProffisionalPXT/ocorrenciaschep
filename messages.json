@@ -36,6 +36,12 @@
     "text": "Por falta de retorno e exceder o limite de 2H de espera e não ter sucesso na coleta estamos retirando o veiculo do local.\n\nFavor, autorizar deslocamento vazio."
   },
   {
+    "id": "bloqueio_delivery",
+    "title": "BLOQUEIO DE DELIVERY (Envio no 2º Site)",
+    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
+    "text": "Por falta de retorno e exceder o limite de 2H de espera e não ter sucesso na coleta estamos retirando o veiculo do local.\n\nFavor, bloquear a delivery"
+  },
+  {
     "id": "criacao_de_linha_geral",
     "title": "CRIAÇÃO DE LINHAS (Qtd Paletes + Qtd NFs)",
     "note_type": "SAP (Not App) CRIAÇÃO DE LINHAS",

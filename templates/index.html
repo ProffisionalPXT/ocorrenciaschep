@@ -531,7 +531,7 @@
       if (type) document.getElementById('note_type').value = type;
       if (text) document.getElementById('location_text').value = text;
 
-      if (sel.value.includes('deslocamento')) {
+      if (sel.value.includes('deslocamento') || sel.value.includes('bloqueio')) {
         document.getElementById('chk_contact').checked = true;
         document.getElementById('chk_location').checked = false;
         toggleLocation();
