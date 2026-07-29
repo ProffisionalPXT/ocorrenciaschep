@@ -126,6 +126,9 @@ def sync_to_render_store():
 
             state_payload[d] = {
                 "delivery": str(d),
+                "status": st_data.get("status", "aguardando_resposta"),
+                "resposta_encontrada": st_data.get("resposta_encontrada", False),
+                "resposta_confirmada": st_data.get("resposta_confirmada", False),
                 "contador": st_data.get("count", 0),
                 "ultima_verificacao": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(last_check_ts)),
                 "ultima_verificacao_ts": last_check_ts,
@@ -133,7 +136,6 @@ def sync_to_render_store():
                 "proxima_verificacao_ts": next_check_ts,
                 "monitorando": True,
                 "created_at": created_at_ts,
-                "status": st_data.get("status", "yellow"),
                 "last_sent": st_data.get("last_sent", None)
             }
 
@@ -159,7 +161,7 @@ def sync_to_render_store():
 def restore_from_render_store():
     """
     Ao iniciar o Flask no Host Local: conecta ao Render (ou cache local),
-    reconstrói a lista, contadores (0/4), horários e recalcula os timers.
+    reconstrói a lista, estados, contadores e horários sem perdas.
     """
     append_log("[RENDER] Conectando ao Render / banco de persistência...")
     render_url = os.getenv("RENDER_STORE_URL", "https://ocorrenciaschep.onrender.com/api/render_store")
@@ -201,13 +203,17 @@ def restore_from_render_store():
                     monitored_deliveries.append(deliv_str)
 
                 count_val = item.get("contador", 0)
-                st_val = item.get("status", "yellow")
+                st_val = item.get("status", "aguardando_resposta")
+                resp_enc = item.get("resposta_encontrada", False)
+                resp_conf = item.get("resposta_confirmada", False)
                 last_sent_val = item.get("last_sent", None)
                 last_check_ts = item.get("ultima_verificacao_ts", now)
                 next_check_ts = item.get("proxima_verificacao_ts", last_check_ts + 1200)
 
                 delivery_statuses[deliv_str] = {
                     "status": st_val,
+                    "resposta_encontrada": resp_enc,
+                    "resposta_confirmada": resp_conf,
                     "count": count_val,
                     "last_sent": last_sent_val,
                     "updated_at": last_check_ts,
@@ -215,13 +221,16 @@ def restore_from_render_store():
                 }
                 restored_count += 1
 
-                # Recalcula temporizadores
-                if now >= next_check_ts:
-                    append_log(f"[RENDER] Delivery #{deliv_str} (Contador {count_val}/4) com horário vencido. Agendando verificação imediata...")
-                    overdue_deliveries.append(deliv_str)
+                # Recalcula temporizadores apenas para deliveries com resposta
+                if resp_enc:
+                    if now >= next_check_ts:
+                        append_log(f"[RENDER] Delivery #{deliv_str} com horário vencido. Agendando verificação imediata...")
+                        overdue_deliveries.append(deliv_str)
+                    else:
+                        rem_min = int((next_check_ts - now) // 60)
+                        append_log(f"[RENDER] Delivery #{deliv_str} restaurada (Resposta Encontrada, Contador: {count_val}/4, próxima em {rem_min} min).")
                 else:
-                    rem_min = int((next_check_ts - now) // 60)
-                    append_log(f"[RENDER] Delivery #{deliv_str} restaurada (Contador: {count_val}/4, próxima verificação em {rem_min} min).")
+                    append_log(f"[RENDER] Delivery #{deliv_str} restaurada (Aguardando resposta da CHEP - sem timer).")
 
         save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
 
@@ -243,10 +252,6 @@ else:
 def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="manual"):
     """
     Executa o ciclo de verificação no Service Desk para a lista de deliveries fornecida.
-    Modes:
-      'auto': Ciclo automático do scheduler (20 min)
-      'initial': Verificação inicial ao adicionar delivery
-      'manual': Verificação manual pontual via botão 'Verificar'
     """
     global last_check_time, monitor_check_count, monitoring_runs_history
     if not deliveries_to_check:
@@ -281,29 +286,55 @@ def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="ma
         answered_dict = {item[0]: item for item in answered}
 
         for deliv in deliveries_to_check:
-            st_data = delivery_statuses.get(deliv, {"status": "yellow", "count": 0})
-            new_count = st_data.get("count", 0) + 1
+            st_data = delivery_statuses.get(deliv, {})
+            cur_found = st_data.get("resposta_encontrada", False)
+            cur_confirmed = st_data.get("resposta_confirmada", False)
+            cur_count = st_data.get("count", 0)
 
+            is_chep_reply = False
+            last_time = cur_data = st_data.get("last_sent", None)
             if deliv in answered_dict:
                 res_item = answered_dict[deliv]
-                is_purple = res_item[1]
-                is_overdue = res_item[2]
+                is_purple = res_item[1]  # True = resposta encontrada no Service Desk
                 last_time = res_item[3] if len(res_item) > 3 else None
-                st_color = "purple" if is_purple else ("overdue" if is_overdue else "yellow")
-            else:
-                st_color = st_data.get("status", "yellow")
-                last_time = st_data.get("last_sent", None)
+                if is_purple:
+                    is_chep_reply = True
 
-            delivery_statuses[deliv] = {
-                "status": st_color,
-                "count": new_count,
-                "last_sent": last_time,
-                "updated_at": time.time()
-            }
-            if st_color == "purple":
-                append_log(f"🚨 Delivery #{deliv} atualizada para ROXO!")
-            elif st_color == "overdue":
-                append_log(f"⏰ Delivery #{deliv} marcada com ALERTA > 1H ({last_time})!")
+            if is_chep_reply or cur_found:
+                # Transição/Manutenção do Estado com Resposta Encontrada
+                if not cur_found:
+                    new_status = "resposta_encontrada"
+                    new_found = True
+                    new_confirmed = False
+                    new_count = 0
+                    append_log(f"🚨 [RESPOSTA ENCONTRADA] Delivery #{deliv} possui nova resposta da CHEP! Cronômetro e contador (0/4) iniciados.")
+                else:
+                    new_found = True
+                    new_confirmed = cur_confirmed
+                    new_count = cur_count + 1
+                    new_status = "resposta_confirmada" if cur_confirmed else "resposta_encontrada"
+
+                delivery_statuses[deliv] = {
+                    "status": new_status,
+                    "resposta_encontrada": True,
+                    "resposta_confirmada": new_confirmed,
+                    "count": new_count,
+                    "last_sent": last_time,
+                    "updated_at": time.time(),
+                    "created_at": st_data.get("created_at", time.time())
+                }
+            else:
+                # Estado 1: Aguardando resposta da CHEP (Sem timer, sem contador)
+                delivery_statuses[deliv] = {
+                    "status": "aguardando_resposta",
+                    "resposta_encontrada": False,
+                    "resposta_confirmada": False,
+                    "count": 0,
+                    "last_sent": None,
+                    "updated_at": time.time(),
+                    "created_at": st_data.get("created_at", time.time())
+                }
+                append_log(f"🟣 Delivery #{deliv}: Aguardando resposta da CHEP (sem timer).")
 
         if mode == "auto":
             last_check_time = time.time()
@@ -318,7 +349,7 @@ def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="ma
 
 def add_delivery_to_monitoring(delivery: str, profile: str = "BR__LH_PURM2"):
     """
-    Adiciona uma delivery à fila de monitoramento com contador 0/4 e engata verificação inicial imediata.
+    Adiciona uma delivery no estado inicial 'aguardando_resposta' (sem timer) e dispara verificação inicial.
     """
     global active_profile
     delivery = str(delivery).strip()
@@ -331,8 +362,16 @@ def add_delivery_to_monitoring(delivery: str, profile: str = "BR__LH_PURM2"):
         if delivery not in monitored_deliveries:
             monitored_deliveries.append(delivery)
             save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
-            delivery_statuses[delivery] = {"status": "yellow", "count": 0, "last_sent": None, "updated_at": time.time(), "created_at": time.time()}
-            append_log(f"[MONITOR] Delivery {delivery} adicionada ao monitoramento.")
+            delivery_statuses[delivery] = {
+                "status": "aguardando_resposta",
+                "resposta_encontrada": False,
+                "resposta_confirmada": False,
+                "count": 0,
+                "last_sent": None,
+                "updated_at": time.time(),
+                "created_at": time.time()
+            }
+            append_log(f"[MONITOR] Delivery {delivery} adicionada ao monitoramento (Estado: Aguardando resposta).")
             added = True
         else:
             append_log(f"[MONITOR] Delivery {delivery} já está na lista de monitoramento.")
@@ -384,6 +423,28 @@ def global_monitoring_scheduler():
                 save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
 
 threading.Thread(target=global_monitoring_scheduler, daemon=True).start()
+
+@app.route("/api/confirm_ok", methods=["POST"])
+def confirm_ok():
+    """
+    Registra que o usuário tratou a resposta da delivery no Service Desk.
+    Remove o alerta visual de 'Resposta Encontrada' e oculta o botão OK,
+    mas MANTÉM a delivery monitorada normalmente com timer e contador ativos.
+    """
+    data = request.json or {}
+    delivery = str(data.get("delivery", "")).strip()
+    with monitoring_lock:
+        if delivery in delivery_statuses:
+            delivery_statuses[delivery]["resposta_confirmada"] = True
+            delivery_statuses[delivery]["status"] = "resposta_confirmada"
+            append_log(f"✅ Resposta da Delivery #{delivery} confirmada pelo usuário (OK).")
+            sync_to_render_store()
+            return jsonify({
+                "success": True,
+                "statuses": delivery_statuses,
+                "monitored_deliveries": monitored_deliveries
+            })
+    return jsonify({"success": False, "error": "Delivery não encontrada"}), 404
 
 @app.route("/api/render_store", methods=["GET", "POST"])
 def handle_render_store():
