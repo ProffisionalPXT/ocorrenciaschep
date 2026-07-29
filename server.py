@@ -258,6 +258,13 @@ def check_replies():
         append_log(f"⚠️ Erro ao verificar respostas: {e}")
         return jsonify({"success": False, "error": str(e), "answered_deliveries": [], "statuses": delivery_statuses})
 
+@app.route("/api/save_daily_deliveries", methods=["POST"])
+def save_daily_deliveries():
+    data = request.json or {}
+    deliveries = data.get("deliveries", [])
+    save_json(DAILY_DELIVERIES_FILE, deliveries)
+    return jsonify({"success": True, "deliveries": deliveries})
+
 @app.route("/api/drivers", methods=["GET", "POST", "DELETE"])
 def handle_drivers():
     drivers = load_json(DRIVERS_FILE)
