@@ -384,13 +384,17 @@ class CHEPBotEngine:
 
                 # 2. SELEÇÃO DO PROCESSO*
                 try:
-                    # Clica diretamente na caixinha ou input do primeiro ng-select da modal
                     proc_select = modal.locator("ng-select").first
                     if not await proc_select.is_visible(timeout=2000):
                         proc_select = page.locator("ng-select").first
 
-                    # Clica no container do ng-select para abrir a lista
-                    await proc_select.click(force=True)
+                    # Clica diretamente no wrapper da seta ou input para abrir a lista
+                    arrow = proc_select.locator(".ng-arrow-wrapper, .ng-select-container, input").first
+                    if await arrow.is_visible(timeout=1500):
+                        await arrow.click(force=True)
+                    else:
+                        await proc_select.click(force=True)
+                    
                     await asyncio.sleep(0.8)
 
                     # Digita "Logistics" para filtrar no dropdown
@@ -398,15 +402,30 @@ class CHEPBotEngine:
                     await asyncio.sleep(0.8)
 
                     # Clica na opção contendo Logistics
-                    opt_log = page.locator(".ng-option, span, div").filter(has_text="Logistics").first
+                    opt_log = page.locator(".ng-option").filter(has_text="Logistics").first
+                    if not await opt_log.is_visible(timeout=2000):
+                        opt_log = page.locator("span, div").filter(has_text="LATAM - Brazil - Logistics").first
+
                     if await opt_log.is_visible(timeout=2000):
                         await opt_log.click(force=True)
                     else:
                         await page.keyboard.press("Enter")
 
+                    await asyncio.sleep(0.5)
+
+                    # VERIFICAÇÃO DE SEGURANÇA: Garante que o texto de Processo realmente ficou preenchido!
+                    val_text = await proc_select.inner_text()
+                    if "Logistics" not in val_text and "LATAM" not in val_text:
+                        self.log("   ⚠️ O Processo não fixou na 1ª tentativa, forçando nova seleção...")
+                        await proc_select.click(force=True)
+                        await asyncio.sleep(0.5)
+                        await page.keyboard.type("LATAM - Brazil - Logistics", delay=50)
+                        await asyncio.sleep(0.5)
+                        await page.keyboard.press("Enter")
+
                     self.log("   🟢 [OK] Processo preenchido: 'LATAM - Brazil - Logistics'")
                 except Exception as e_proc:
-                    self.log(f"   ⚠️ Aviso ao preencher Processo: {e_proc}")
+                    self.log(f"   ❌ Erro ao preencher Processo: {e_proc}")
 
                 await page.wait_for_timeout(2000)  # Aguarda 2 segundos entre as seleções
 
