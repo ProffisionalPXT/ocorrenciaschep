@@ -39,14 +39,15 @@ def save_json(filepath, data):
 logs_list = ["Servidor Web do CHEP Bot iniciado. Acesse pelo PC ou Celular!"]
 delivery_statuses = {}
 monitor_check_count = 0
+monitoring_runs_history = []
 
 def append_log(msg: str):
     timestamp = time.strftime("[%H:%M:%S] ")
     full_msg = f"{timestamp}{msg}"
     print(full_msg)
     logs_list.append(full_msg)
-    if len(logs_list) > 500:
-        logs_list.pop(0)
+    if monitoring_runs_history:
+        monitoring_runs_history[-1].append(full_msg)
 
 engine = CHEPBotEngine(log_callback=append_log)
 async_loop = asyncio.new_event_loop()
@@ -244,17 +245,23 @@ def check_replies():
     if not deliveries_to_check:
         return jsonify({"success": True, "message": "Nenhuma delivery para verificar.", "answered_deliveries": [], "statuses": delivery_statuses})
 
-    global last_check_time, monitor_check_count
+    global last_check_time, monitor_check_count, monitoring_runs_history
     monitor_check_count += 1
-    
-    # A cada 2 monitoramentos, limpa os logs antigos da caixa mantendo apenas um aviso do ciclo
-    if monitor_check_count % 2 == 1:
-        logs_list.clear()
-        logs_list.append(f"🧹 [Logs] Histórico zerado para os próximos 2 ciclos de monitoramento (#{monitor_check_count}).")
 
     last_check_time = time.time()
     save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
-    append_log(f"🔍 [Monitor #{monitor_check_count}] Verificando respostas pendentes no Service Desk ({profile})...")
+    
+    current_run_logs = [f"{time.strftime('[%H:%M:%S] ')}🔍 [Monitor #{monitor_check_count}] Verificando respostas pendentes no Service Desk ({profile})..."]
+    monitoring_runs_history.append(current_run_logs)
+    
+    # Mantém SEMPRE exatamente as últimas 2 verificações (apaga a #1 quando entra a #3)
+    if len(monitoring_runs_history) > 2:
+        monitoring_runs_history.pop(0)
+
+    # Reconstrói o logs_list com apenas os 2 últimos ciclos
+    logs_list.clear()
+    for run in monitoring_runs_history:
+        logs_list.extend(run)
     try:
         fut = asyncio.run_coroutine_threadsafe(
             engine.check_pending_carrier_replies(deliveries_to_check, profile_name=profile),
