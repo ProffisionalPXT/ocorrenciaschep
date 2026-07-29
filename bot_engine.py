@@ -586,9 +586,11 @@ class CHEPBotEngine:
                     self.log("⚠️ Botão 'CRIAR PEDIDO(S)' não encontrado na tela!")
             else:
                 self.log("⛔ Ocorrência rejeitada ou cancelada. Fechando a modal.")
-                close_btn = modal.locator("button:has-text('Cancelar'), button:has-text('Close'), button[aria-label='Close'], .close").first
+                close_btn = modal.locator("button.close, .modal-header .close, button:has-text('Cancelar'), button:has-text('Close'), button[aria-label='Close'], span[aria-hidden='true']").first
                 if await close_btn.is_visible(timeout=2000):
                     await close_btn.click(force=True)
+                else:
+                    await page.keyboard.press("Escape")
                 return False
                 
             return True
