@@ -648,6 +648,12 @@
         remainingSec = Math.max(0, 1200 - Math.floor(elapsed % 1200));
       }
 
+      if (remainingSec === 0 && document.getElementById('chk_auto_mon').checked && !window.autoCheckingActive) {
+        window.autoCheckingActive = true;
+        checkRepliesNow();
+        setTimeout(() => { window.autoCheckingActive = false; }, 5000);
+      }
+
       const m = Math.floor(remainingSec / 60).toString().padStart(2, '0');
       const s = (remainingSec % 60).toString().padStart(2, '0');
       const formatted = `${m}:${s}`;
