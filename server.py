@@ -97,6 +97,13 @@ def serve_screenshot(filename):
     shots_dir = os.path.join(BASE_DIR, "screenshots")
     return send_from_directory(shots_dir, filename)
 
+# ==============================================================================
+# MÓDULO DE MONITORAMENTO AUTOMÁTICO SERVER-SIDE (20 MIN)
+# ==============================================================================
+monitoring_lock = threading.Lock()
+monitored_deliveries = load_json(DAILY_DELIVERIES_FILE, default=[])
+active_profile = "BR__LH_PURM2"
+
 saved_time_obj = load_json(LAST_CHECK_FILE, default={})
 if isinstance(saved_time_obj, dict) and "last_check_time" in saved_time_obj:
     last_check_time = saved_time_obj["last_check_time"]
@@ -104,11 +111,141 @@ else:
     last_check_time = time.time()
     save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
 
+def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="manual"):
+    """
+    Executa o ciclo de verificação no Service Desk para a lista de deliveries fornecida.
+    Modes:
+      'auto': Ciclo automático do scheduler (20 min)
+      'initial': Verificação inicial ao adicionar delivery
+      'manual': Verificação manual pontual via botão 'Verificar'
+    """
+    global last_check_time, monitor_check_count, monitoring_runs_history
+    if not deliveries_to_check:
+        return []
+
+    if mode == "auto":
+        append_log("[MONITOR] Executando monitoramento automático...")
+        for d in deliveries_to_check:
+            append_log(f"[MONITOR] Verificando delivery {d}...")
+    elif mode == "initial":
+        append_log("[MONITOR] Executando verificação inicial...")
+        for d in deliveries_to_check:
+            append_log(f"[MONITOR] Verificando delivery {d}...")
+
+    monitor_check_count += 1
+    current_run_logs = [f"{time.strftime('[%H:%M:%S] ')}🔍 [Monitor #{monitor_check_count}] Verificando respostas no Service Desk ({profile})..."]
+    monitoring_runs_history.append(current_run_logs)
+    if len(monitoring_runs_history) > 2:
+        monitoring_runs_history.pop(0)
+
+    logs_list.clear()
+    for run in monitoring_runs_history:
+        logs_list.extend(run)
+    save_logs_disk()
+
+    try:
+        fut = asyncio.run_coroutine_threadsafe(
+            engine.check_pending_carrier_replies(deliveries_to_check, profile_name=profile),
+            async_loop
+        )
+        answered = fut.result(timeout=180) or []
+        for res_item in answered:
+            deliv = res_item[0]
+            is_purple = res_item[1]
+            is_overdue = res_item[2]
+            last_time = res_item[3] if len(res_item) > 3 else None
+
+            st_color = "purple" if is_purple else ("overdue" if is_overdue else "yellow")
+            delivery_statuses[deliv] = {
+                "status": st_color,
+                "last_sent": last_time,
+                "updated_at": time.time()
+            }
+            if is_purple:
+                append_log(f"🚨 Delivery #{deliv} atualizada para ROXO!")
+            elif is_overdue:
+                append_log(f"⏰ Delivery #{deliv} marcada com ALERTA > 1H ({last_time})!")
+
+        if mode == "auto":
+            last_check_time = time.time()
+            save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
+            append_log("[MONITOR] Monitoramento concluído. Próxima execução em 20 minutos.")
+
+        return answered
+    except Exception as e:
+        append_log(f"⚠️ Erro ao verificar respostas: {e}")
+        return []
+
+def add_delivery_to_monitoring(delivery: str, profile: str = "BR__LH_PURM2"):
+    """
+    Adiciona uma delivery à fila de monitoramento e engata verificação inicial imediata.
+    """
+    global active_profile
+    delivery = str(delivery).strip()
+    if not delivery:
+        return False
+
+    active_profile = profile
+    added = False
+    with monitoring_lock:
+        if delivery not in monitored_deliveries:
+            monitored_deliveries.append(delivery)
+            save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
+            delivery_statuses[delivery] = {"status": "yellow", "last_sent": None, "updated_at": time.time()}
+            append_log(f"[MONITOR] Delivery {delivery} adicionada ao monitoramento.")
+            added = True
+        else:
+            append_log(f"[MONITOR] Delivery {delivery} já está na lista de monitoramento.")
+
+    if added:
+        def do_initial():
+            run_verification_cycle([delivery], profile=profile, mode="initial")
+        threading.Thread(target=do_initial, daemon=True).start()
+
+    return added
+
+def remove_delivery_from_monitoring(delivery: str):
+    """
+    Remove uma delivery da fila de monitoramento.
+    """
+    delivery = str(delivery).strip()
+    with monitoring_lock:
+        if delivery in monitored_deliveries:
+            monitored_deliveries.remove(delivery)
+            save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
+            if delivery in delivery_statuses:
+                del delivery_statuses[delivery]
+            append_log(f"[MONITOR] Delivery {delivery} removida do monitoramento.")
+            return True
+        return False
+
+def global_monitoring_scheduler():
+    """
+    Scheduler em segundo plano no servidor Python.
+    A cada 20 minutos (1200 segundos), verifica todas as deliveries da fila de monitoramento.
+    """
+    global last_check_time
+    append_log("[MONITOR] Scheduler global de monitoramento automático iniciado (20 min).")
+    while True:
+        time.sleep(10)
+        now = time.time()
+        if now - last_check_time >= 1200:
+            with monitoring_lock:
+                to_check = list(monitored_deliveries)
+            if to_check:
+                run_verification_cycle(to_check, profile=active_profile, mode="auto")
+            else:
+                last_check_time = now
+                save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
+
+threading.Thread(target=global_monitoring_scheduler, daemon=True).start()
+
 @app.route("/api/logs")
 def get_logs():
     return jsonify({
         "logs": logs_list,
         "statuses": delivery_statuses,
+        "monitored_deliveries": monitored_deliveries,
         "last_check_time": last_check_time,
         "server_time": time.time()
     })
@@ -154,12 +291,9 @@ def execute_occurrence():
             file.save(file_path)
             attachment_path = file_path
 
-    daily_deliveries = load_json(DAILY_DELIVERIES_FILE, default=[])
-    if coleta_dia and delivery not in daily_deliveries:
-        daily_deliveries.append(delivery)
-        save_json(DAILY_DELIVERIES_FILE, daily_deliveries)
-        delivery_statuses[delivery] = {"status": "yellow", "last_sent": None, "updated_at": time.time()}
-        append_log(f"🔔 Delivery #{delivery} adicionada ao monitoramento 'COLETA DO DIA' (a cada 20 min)!")
+    # Se a caixa "COLETA DO DIA" estiver marcada, insere na lista de monitoramento contínuo
+    if coleta_dia:
+        add_delivery_to_monitoring(delivery, profile)
 
     def run_tasks():
         append_log(f"Perfil: {profile} | Delivery #{delivery}")
@@ -212,18 +346,6 @@ def execute_occurrence():
 
         append_log(f"🚀 Processo concluído com sucesso para a Delivery #{delivery}!")
 
-        # Se for COLETA DO DIA, verifica imediatamente no Service Desk se já possui resposta e atualiza o painel
-        if coleta_dia:
-            append_log(f"🔍 [Coleta do Dia] Verificando imediatamente se a Delivery #{delivery} possui resposta no Service Desk...")
-            try:
-                fut_check = asyncio.run_coroutine_threadsafe(
-                    engine.check_pending_carrier_replies([delivery], profile_name=profile),
-                    async_loop
-                )
-                fut_check.result()
-            except Exception as e_chk:
-                append_log(f"⚠️ Aviso na verificação imediata: {e_chk}")
-
     threading.Thread(target=run_tasks, daemon=True).start()
     return jsonify({"success": True, "message": "Preenchimento iniciado em segundo plano!"})
 
@@ -255,79 +377,64 @@ def check_replies():
     data = request.json or {}
     profile = data.get("profile", "BR__LH_PURM2")
     deliveries_to_check = data.get("deliveries")
-    if not deliveries_to_check:
-        deliveries_to_check = load_json(DAILY_DELIVERIES_FILE, default=[])
-    
-    if not deliveries_to_check:
-        return jsonify({"success": True, "message": "Nenhuma delivery para verificar.", "answered_deliveries": [], "statuses": delivery_statuses})
+    add_to_monitor = data.get("add_to_monitor", False)
 
-    global last_check_time, monitor_check_count, monitoring_runs_history
-    monitor_check_count += 1
-
-    last_check_time = time.time()
-    save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
-    
-    current_run_logs = [f"{time.strftime('[%H:%M:%S] ')}🔍 [Monitor #{monitor_check_count}] Verificando respostas pendentes no Service Desk ({profile})..."]
-    monitoring_runs_history.append(current_run_logs)
-    
-    # Mantém SEMPRE exatamente as últimas 2 verificações (apaga a #1 quando entra a #3)
-    if len(monitoring_runs_history) > 2:
-        monitoring_runs_history.pop(0)
-
-    # Reconstrói o logs_list com apenas os 2 últimos ciclos
-    logs_list.clear()
-    for run in monitoring_runs_history:
-        logs_list.extend(run)
-    save_logs_disk()
-    try:
-        fut = asyncio.run_coroutine_threadsafe(
-            engine.check_pending_carrier_replies(deliveries_to_check, profile_name=profile),
-            async_loop
-        )
-        answered = fut.result(timeout=180)
-        if not answered:
-            answered = []
-        for res_item in answered:
-            deliv = res_item[0]
-            is_purple = res_item[1]
-            is_overdue = res_item[2]
-            last_time = res_item[3] if len(res_item) > 3 else None
-            
-            st_color = "purple" if is_purple else ("overdue" if is_overdue else "yellow")
-            delivery_statuses[deliv] = {
-                "status": st_color,
-                "last_sent": last_time,
-                "updated_at": time.time()
-            }
-            if is_purple:
-                append_log(f"🚨 Delivery #{deliv} atualizada para ROXO!")
-            elif is_overdue:
-                append_log(f"⏰ Delivery #{deliv} marcada com ALERTA > 1H ({last_time})!")
-
+    if add_to_monitor and deliveries_to_check:
+        for d in deliveries_to_check:
+            add_delivery_to_monitoring(d, profile)
         return jsonify({
-            "success": True, 
-            "answered_deliveries": [item[0] for item in answered if item[1]], 
+            "success": True,
+            "monitored_deliveries": monitored_deliveries,
             "statuses": delivery_statuses,
             "last_check_time": last_check_time,
             "server_time": time.time()
         })
-    except Exception as e:
-        append_log(f"⚠️ Erro ao verificar respostas: {e}")
+
+    if not deliveries_to_check:
+        deliveries_to_check = list(monitored_deliveries)
+
+    if not deliveries_to_check:
         return jsonify({
-            "success": False, 
-            "error": str(e), 
-            "answered_deliveries": [], 
+            "success": True,
+            "message": "Nenhuma delivery para verificar.",
+            "answered_deliveries": [],
             "statuses": delivery_statuses,
             "last_check_time": last_check_time,
             "server_time": time.time()
         })
+
+    # Verificação pontual / manual
+    answered = run_verification_cycle(deliveries_to_check, profile=profile, mode="manual")
+
+    return jsonify({
+        "success": True,
+        "answered_deliveries": [item[0] for item in answered if item[1]],
+        "statuses": delivery_statuses,
+        "last_check_time": last_check_time,
+        "server_time": time.time()
+    })
+
+@app.route("/api/remove_monitoring", methods=["POST"])
+def remove_monitoring():
+    data = request.json or {}
+    delivery = data.get("delivery", "").strip()
+    removed = remove_delivery_from_monitoring(delivery)
+    return jsonify({
+        "success": removed,
+        "monitored_deliveries": monitored_deliveries,
+        "statuses": delivery_statuses
+    })
 
 @app.route("/api/save_daily_deliveries", methods=["POST"])
 def save_daily_deliveries():
     data = request.json or {}
     deliveries = data.get("deliveries", [])
-    save_json(DAILY_DELIVERIES_FILE, deliveries)
-    return jsonify({"success": True, "deliveries": deliveries})
+    clean_delivs = [str(d).strip() for d in deliveries if str(d).strip()]
+    with monitoring_lock:
+        monitored_deliveries.clear()
+        monitored_deliveries.extend(clean_delivs)
+        save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
+    return jsonify({"success": True, "deliveries": monitored_deliveries})
 
 @app.route("/api/drivers", methods=["GET", "POST", "DELETE"])
 def handle_drivers():

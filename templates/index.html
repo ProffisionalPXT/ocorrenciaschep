@@ -625,22 +625,21 @@
     }
 
     function removeDelivery(deliveryNum) {
-      const rawText = document.getElementById('daily_deliveries_box').value;
-      let deliveries = rawText.split('\n').map(s => s.trim()).filter(Boolean);
-      deliveries = deliveries.filter(d => d !== deliveryNum);
-      
-      const newText = deliveries.join('\n');
-      document.getElementById('daily_deliveries_box').value = newText;
-      
-      delete deliveryTimers[deliveryNum];
-      syncDailyDeliveriesToServer();
-      fetchLogs();
+      fetch('/api/remove_monitoring', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delivery: deliveryNum })
+      }).then(res => res.json()).then(data => {
+        if (data.monitored_deliveries) {
+          document.getElementById('daily_deliveries_box').value = data.monitored_deliveries.join('\n');
+        }
+        fetchLogs();
+      });
     }
 
     let globalLastCheckTime = 0;
     let globalServerTime = 0;
 
-    // Garante primeira busca dos logs para ler globalLastCheckTime imediatamente ao carregar a página
     fetchLogs();
 
     setInterval(() => {
@@ -651,12 +650,6 @@
       if (globalLastCheckTime > 0 && globalServerTime > 0) {
         const elapsed = (Date.now() / 1000) - globalLastCheckTime;
         remainingSec = Math.max(0, 1200 - Math.floor(elapsed % 1200));
-      }
-
-      if (remainingSec === 0 && !window.autoCheckingActive) {
-        window.autoCheckingActive = true;
-        checkRepliesNow(false);
-        setTimeout(() => { window.autoCheckingActive = false; }, 5000);
       }
 
       const m = Math.floor(remainingSec / 60).toString().padStart(2, '0');
@@ -726,6 +719,10 @@
         if (data.last_check_time) globalLastCheckTime = data.last_check_time;
         if (data.server_time) globalServerTime = data.server_time;
 
+        if (data.monitored_deliveries && document.activeElement !== document.getElementById('daily_deliveries_box')) {
+          document.getElementById('daily_deliveries_box').value = data.monitored_deliveries.join('\n');
+        }
+
         if (data.statuses) {
           renderStatuses(data.statuses);
         }
@@ -773,50 +770,22 @@
         return;
       }
 
-      // Se a caixa "Adicionar ao Monitoramento" estiver marcada, adiciona à lista de monitoradas (auto 20 min)
-      if (shouldMonitor) {
-        const area = document.getElementById('daily_deliveries_box');
-        let currentDeliveries = area.value.split('\n').map(s => s.trim()).filter(Boolean);
-        if (!currentDeliveries.includes(deliveryVal)) {
-          currentDeliveries.push(deliveryVal);
-          area.value = currentDeliveries.join('\n');
-          syncDailyDeliveriesToServer();
-        }
-        // verifica imediatamente ao adicionar
-        fetch('/api/check_replies', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ deliveries: [deliveryVal], profile: profile })
-        }).then(res => res.json()).then(data => {
-          if (data.last_check_time) globalLastCheckTime = data.last_check_time;
-          if (data.server_time) globalServerTime = data.server_time;
-          if (data.statuses) renderStatuses(data.statuses);
-        });
-      } else {
-        // Sem monitoramento: apenas verifica uma vez, não adiciona à lista
-        fetch('/api/check_replies', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ deliveries: [deliveryVal], profile: profile })
-        }).then(res => res.json()).then(data => {
-          if (data.last_check_time) globalLastCheckTime = data.last_check_time;
-          if (data.server_time) globalServerTime = data.server_time;
-          if (data.statuses) renderStatuses(data.statuses);
-        });
-      }
-
-      // Esvazia a caixa de texto de entrada imediatamente após clicar no botão azul
       deliveryInput.value = '';
 
       fetch('/api/check_replies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deliveries: [deliveryVal], profile: profile })
+        body: JSON.stringify({ deliveries: [deliveryVal], profile: profile, add_to_monitor: shouldMonitor })
+      }).then(res => res.json()).then(data => {
+        if (data.monitored_deliveries) {
+          document.getElementById('daily_deliveries_box').value = data.monitored_deliveries.join('\n');
+        }
+        if (data.statuses) renderStatuses(data.statuses);
+        fetchLogs();
       });
     }
 
-    // toggleAutoMonitor: a caixa agora só controla se adiciona à lista — o monitoramento automático é sempre ativo pelo countdown
-    function toggleAutoMonitor() { /* no-op — monitoramento automático é sempre ativo via countdown */ }
+    function toggleAutoMonitor() { /* monitoramento global server-side sempre ativo */ }
 
     function submitCustomForm() {
       const form = document.getElementById('occForm');
@@ -836,22 +805,11 @@
       formData.append('include_contact', document.getElementById('chk_contact').checked);
       formData.append('coleta_dia', isColetaDia);
 
-      // Atualiza a interface imediatamente se for Coleta do Dia
-      if (isColetaDia && deliveryVal) {
-        const area = document.getElementById('daily_deliveries_box');
-        let currentDeliveries = area.value.split('\n').map(s => s.trim()).filter(Boolean);
-        if (!currentDeliveries.includes(deliveryVal)) {
-          currentDeliveries.push(deliveryVal);
-          area.value = currentDeliveries.join('\n');
-        }
-      }
-
       fetch('/api/execute', {
         method: 'POST',
         body: formData
       }).then(res => res.json()).then(data => {
         alert(data.message);
-        // Monitoramento automático sempre ativo via countdown — nenhuma ação extra necessária
         fetchLogs();
         clearPhoto();
         document.getElementById('delivery').value = '';
