@@ -6,9 +6,9 @@ echo Iniciando o aplicativo CHEP Bot...
 echo ========================================================
 
 IF EXIST "C:\Users\TRANSRAP05\AppData\Local\Python\pythoncore-3.14-64\python.exe" (
-    "C:\Users\TRANSRAP05\AppData\Local\Python\pythoncore-3.14-64\python.exe" app.py
+    "C:\Users\TRANSRAP05\AppData\Local\Python\pythoncore-3.14-64\python.exe" server.py
 ) ELSE (
-    python app.py
+    python server.py
 )
 
 if %ERRORLEVEL% NEQ 0 (
