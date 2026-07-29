@@ -27,7 +27,7 @@
     "id": "excesso_veiculos",
     "title": "PROBLEMA DE ACESSO / EXCESSO DE VEICULO",
     "note_type": "SAP (ZJ) PROBLEMA DE ACESSO / EXCESSO DE VEÍCULOS NO CLIENTE",
-    "text": "Veiculo no D aguardando acesso para realizar o carregamento. Motorista foi informado que devido ao excesso de veiculos não tem previsão para o carregamento."
+    "text": "Veiculo no D aguardando acesso para realizar o carregamento. Motorista informou que devido ao excesso de veiculos não tem previsão para o carregamento.\n\nFavor, verificar e como proceder"
   },
   {
     "id": "deslocamento_vazio",

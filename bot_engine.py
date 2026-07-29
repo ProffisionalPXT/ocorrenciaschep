@@ -498,10 +498,15 @@ class CHEPBotEngine:
                 await ql_editor.wait_for(state="visible", timeout=4000)
                 await ql_editor.click(force=True)
                 
-                # Gera tags <p> individuais para cada linha não vazia, eliminando a margem do Quill via CSS inline
-                lines = [l.strip() for l in description.replace('\r\n', '\n').split('\n') if l.strip()]
-                html_formatted = "".join([f'<p style="margin: 0; padding: 0; line-height: 1.4;">{line}</p>' for line in lines])
+                # Formata respeitando quebras duplas de linha (\n\n) mantendo o parágrafo limpo
+                paragraphs = description.replace('\r\n', '\n').split('\n\n')
+                html_blocks = []
+                for p in paragraphs:
+                    p_clean = p.strip().replace('\n', ' ')
+                    if p_clean:
+                        html_blocks.append(f'<p style="margin: 0 0 10px 0; padding: 0; line-height: 1.4;">{p_clean}</p>')
                 
+                html_formatted = "".join(html_blocks)
                 await ql_editor.evaluate("(el, html) => { el.innerHTML = html; el.dispatchEvent(new Event('input', { bubbles: true })); }", html_formatted)
                 self.log("   🟢 [OK] Texto da mensagem preenchido no editor com espaçamento exato por linha!")
             except Exception as e_ed:
