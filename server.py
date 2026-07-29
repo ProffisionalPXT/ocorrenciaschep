@@ -280,6 +280,9 @@ def check_replies():
             engine.check_pending_carrier_replies(deliveries_to_check, profile_name=profile),
             async_loop
         )
+        answered = fut.result(timeout=180)
+        if not answered:
+            answered = []
         for res_item in answered:
             deliv = res_item[0]
             is_purple = res_item[1]
