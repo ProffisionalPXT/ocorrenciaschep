@@ -457,16 +457,16 @@
             <span>📋 Deliveries Monitoradas</span>
             <span id="mon_profile_badge" class="profile-indicator">Perfil: BR__LH_PURM2</span>
           </div>
-          <textarea id="daily_deliveries_box" onchange="syncDailyDeliveriesToServer()" oninput="syncDailyDeliveriesToServer()" placeholder="Digite uma delivery por linha...">{% for d in daily_deliveries %}{{ d }}&#10;{% endfor %}</textarea>
+          <textarea id="daily_deliveries_box" onchange="syncDailyDeliveriesToServer()" oninput="syncDailyDeliveriesToServer()" placeholder="Digite uma delivery por linha..."></textarea>
 
           <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
             <button type="button" class="btn-conn" style="background: #7c3aed; width: 100%; justify-content: center;" onclick="checkRepliesNow()">🔍 Verificar Agora (Monitoradas)</button>
           </div>
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-wrap: wrap; gap: 8px;">
-            <label class="checkbox-group" style="margin: 0;">
-              <input type="checkbox" id="chk_auto_mon" onchange="toggleAutoMonitor()">
-              <span style="font-size: 12px; font-weight: 700; color: var(--accent-purple);">🔔 Monitorar a cada 20 min</span>
+            <label class="checkbox-group" style="margin: 0;" title="Marcado: adiciona à lista de monitoramento automático (20 min). Desmarcado: verifica só uma vez.">
+              <input type="checkbox" id="chk_auto_mon">
+              <span style="font-size: 12px; font-weight: 700; color: var(--accent-purple);">📌 Adicionar ao Monitoramento (20 min)</span>
             </label>
             <button type="button" class="btn-conn" style="background: var(--accent-blue);" onclick="verifySingleDelivery()" title="Verificar status apenas da delivery digitada na caixa da esquerda">🔍 Verificar</button>
           </div>
@@ -669,7 +669,7 @@
       });
 
       const badge = document.getElementById('countdown_badge');
-      if (badge && document.getElementById('chk_auto_mon').checked) {
+      if (badge) {
         badge.innerText = `⏱️ ${formatted}`;
       }
     }, 1000);
@@ -773,7 +773,7 @@
         return;
       }
 
-      // Se a caixa "Monitorar a cada 20 min" estiver marcada, adiciona essa delivery nova para a lista de monitoradas (direita)
+      // Se a caixa "Adicionar ao Monitoramento" estiver marcada, adiciona à lista de monitoradas (auto 20 min)
       if (shouldMonitor) {
         const area = document.getElementById('daily_deliveries_box');
         let currentDeliveries = area.value.split('\n').map(s => s.trim()).filter(Boolean);
@@ -782,6 +782,27 @@
           area.value = currentDeliveries.join('\n');
           syncDailyDeliveriesToServer();
         }
+        // verifica imediatamente ao adicionar
+        fetch('/api/check_replies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deliveries: [deliveryVal], profile: profile })
+        }).then(res => res.json()).then(data => {
+          if (data.last_check_time) globalLastCheckTime = data.last_check_time;
+          if (data.server_time) globalServerTime = data.server_time;
+          if (data.statuses) renderStatuses(data.statuses);
+        });
+      } else {
+        // Sem monitoramento: apenas verifica uma vez, não adiciona à lista
+        fetch('/api/check_replies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deliveries: [deliveryVal], profile: profile })
+        }).then(res => res.json()).then(data => {
+          if (data.last_check_time) globalLastCheckTime = data.last_check_time;
+          if (data.server_time) globalServerTime = data.server_time;
+          if (data.statuses) renderStatuses(data.statuses);
+        });
       }
 
       // Esvazia a caixa de texto de entrada imediatamente após clicar no botão azul
@@ -794,18 +815,8 @@
       });
     }
 
-    function toggleAutoMonitor() {
-      const active = document.getElementById('chk_auto_mon').checked;
-      if (active) {
-        if (monitorTimer) clearInterval(monitorTimer);
-        monitorTimer = setInterval(() => {
-          console.log("⏰ [Timer 20 min] Executando verificação automática...");
-          checkRepliesNow();
-        }, 1200000);
-      } else {
-        if (monitorTimer) clearInterval(monitorTimer);
-      }
-    }
+    // toggleAutoMonitor: a caixa agora só controla se adiciona à lista — o monitoramento automático é sempre ativo pelo countdown
+    function toggleAutoMonitor() { /* no-op — monitoramento automático é sempre ativo via countdown */ }
 
     function submitCustomForm() {
       const form = document.getElementById('occForm');
@@ -840,14 +851,7 @@
         body: formData
       }).then(res => res.json()).then(data => {
         alert(data.message);
-        // Só liga o monitoramento DEPOIS que a ocorrência terminou com sucesso
-        if (data.auto_monitored) {
-          document.getElementById('chk_auto_mon').checked = true;
-          if (!monitorTimer) {
-            checkRepliesNow();
-            monitorTimer = setInterval(checkRepliesNow, 1200000);
-          }
-        }
+        // Monitoramento automático sempre ativo via countdown — nenhuma ação extra necessária
         fetchLogs();
         clearPhoto();
         document.getElementById('delivery').value = '';
