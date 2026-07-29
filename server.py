@@ -36,10 +36,21 @@ def save_json(filepath, data):
     except Exception as e:
         print(f"Erro ao salvar json: {e}")
 
-logs_list = ["Servidor Web do CHEP Bot iniciado. Acesse pelo PC ou Celular!"]
+LOGS_FILE = os.path.join(BASE_DIR, "logs_history.json")
+
+# Carrega logs do disco ao iniciar para não perder com push/reset do host
+saved_logs_data = load_json(LOGS_FILE, default={"logs": ["Servidor Web do CHEP Bot iniciado. Acesse pelo PC ou Celular!"], "history": [], "count": 0})
+logs_list = saved_logs_data.get("logs", ["Servidor Web do CHEP Bot iniciado."])
+monitoring_runs_history = saved_logs_data.get("history", [])
+monitor_check_count = saved_logs_data.get("count", 0)
 delivery_statuses = {}
-monitor_check_count = 0
-monitoring_runs_history = []
+
+def save_logs_disk():
+    save_json(LOGS_FILE, {
+        "logs": logs_list,
+        "history": monitoring_runs_history,
+        "count": monitor_check_count
+    })
 
 def append_log(msg: str):
     timestamp = time.strftime("[%H:%M:%S] ")
@@ -48,6 +59,7 @@ def append_log(msg: str):
     logs_list.append(full_msg)
     if monitoring_runs_history:
         monitoring_runs_history[-1].append(full_msg)
+    save_logs_disk()
 
 engine = CHEPBotEngine(log_callback=append_log)
 async_loop = asyncio.new_event_loop()
@@ -262,6 +274,7 @@ def check_replies():
     logs_list.clear()
     for run in monitoring_runs_history:
         logs_list.extend(run)
+    save_logs_disk()
     try:
         fut = asyncio.run_coroutine_threadsafe(
             engine.check_pending_carrier_replies(deliveries_to_check, profile_name=profile),
