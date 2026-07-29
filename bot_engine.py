@@ -388,42 +388,39 @@ class CHEPBotEngine:
                     if not await proc_select.is_visible(timeout=2000):
                         proc_select = page.locator("ng-select").first
 
-                    # Clica diretamente no wrapper da seta ou input para abrir a lista
-                    arrow = proc_select.locator(".ng-arrow-wrapper, .ng-select-container, input").first
-                    if await arrow.is_visible(timeout=1500):
-                        await arrow.click(force=True)
+                    await proc_select.scroll_into_view_if_needed()
+                    await proc_select.click(force=True)
+                    await asyncio.sleep(0.5)
+
+                    inp = proc_select.locator("input").first
+                    if await inp.is_visible(timeout=1500):
+                        await inp.fill("Logistics")
                     else:
-                        await proc_select.click(force=True)
+                        await page.keyboard.type("Logistics", delay=80)
                     
                     await asyncio.sleep(0.8)
 
-                    # Digita "Logistics" para filtrar no dropdown
-                    await page.keyboard.type("Logistics", delay=100)
-                    await asyncio.sleep(0.8)
-
-                    # Clica na opção contendo Logistics
-                    opt_log = page.locator(".ng-option").filter(has_text="Logistics").first
-                    if not await opt_log.is_visible(timeout=2000):
-                        opt_log = page.locator("span, div").filter(has_text="LATAM - Brazil - Logistics").first
-
+                    # Tenta clicar na opção do dropdown da modal
+                    opt_log = page.locator(".ng-dropdown-panel .ng-option, ng-dropdown-panel .ng-option").filter(has_text="Logistics").first
                     if await opt_log.is_visible(timeout=2000):
                         await opt_log.click(force=True)
                     else:
                         await page.keyboard.press("Enter")
 
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.8)
 
-                    # VERIFICAÇÃO DE SEGURANÇA: Garante que o texto de Processo realmente ficou preenchido!
+                    # VERIFICAÇÃO DE SEGURANÇA: Se não fixou o valor, força foco no input e Enter
                     val_text = await proc_select.inner_text()
                     if "Logistics" not in val_text and "LATAM" not in val_text:
-                        self.log("   ⚠️ O Processo não fixou na 1ª tentativa, forçando nova seleção...")
-                        await proc_select.click(force=True)
+                        self.log("   ⚠️ O Processo não fixou na 1ª tentativa, forçando re-preenchimento direto...")
+                        arrow = proc_select.locator(".ng-arrow-wrapper, .ng-select-container").first
+                        await arrow.click(force=True)
                         await asyncio.sleep(0.5)
                         await page.keyboard.type("LATAM - Brazil - Logistics", delay=50)
                         await asyncio.sleep(0.5)
                         await page.keyboard.press("Enter")
 
-                    self.log("   🟢 [OK] Processo preenchido: 'LATAM - Brazil - Logistics'")
+                    self.log("   🟢 [OK] Processo preenchido com sucesso!")
                 except Exception as e_proc:
                     self.log(f"   ❌ Erro ao preencher Processo: {e_proc}")
 
