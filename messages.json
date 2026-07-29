@@ -56,7 +56,7 @@
   {
     "id": "atraso_transportadora",
     "title": "ATRASO DA TRANSPORTADORA",
-    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
+    "note_type": "SAP (DX) ATRASO DA TRANSPORTADORA",
     "text": "Veiculo encontra-se no D para realizar o carregamento."
   },
   {
