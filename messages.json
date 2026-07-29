@@ -54,6 +54,12 @@
     "text": "Veiculo segue no local aguardando novas informações e como proceder.\n\nFavor, verificar e como proceder."
   },
   {
+    "id": "atraso_transportadora",
+    "title": "ATRASO DA TRANSPORTADORA",
+    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
+    "text": "Veiculo encontra-se no D para realizar o carregamento."
+  },
+  {
     "id": "criacao_de_linha_geral",
     "title": "CRIAÇÃO DE LINHAS (Qtd Paletes + Qtd NFs)",
     "note_type": "SAP (Not App) CRIAÇÃO DE LINHAS",
