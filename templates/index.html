@@ -714,8 +714,11 @@
     function fetchLogs() {
       fetch('/api/logs').then(res => res.json()).then(data => {
         const box = document.getElementById('logBox');
+        const isScrolledToBottom = (box.scrollHeight - box.clientHeight <= box.scrollTop + 50);
         box.innerHTML = data.logs.map(l => `<div class="log-entry">${l}</div>`).join('');
-        box.scrollTop = box.scrollHeight;
+        if (isScrolledToBottom) {
+          box.scrollTop = box.scrollHeight;
+        }
         
         if (data.last_check_time) globalLastCheckTime = data.last_check_time;
         if (data.server_time) globalServerTime = data.server_time;

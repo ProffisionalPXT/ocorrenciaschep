@@ -44,7 +44,7 @@ def append_log(msg: str):
     full_msg = f"{timestamp}{msg}"
     print(full_msg)
     logs_list.append(full_msg)
-    if len(logs_list) > 40:
+    if len(logs_list) > 500:
         logs_list.pop(0)
 
 engine = CHEPBotEngine(log_callback=append_log)
