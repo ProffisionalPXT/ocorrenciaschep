@@ -382,12 +382,42 @@ class CHEPBotEngine:
                 await self.save_debug_screenshot(page, "debug_06_modal_aberta", "Print 6 - Modal Aberta")
                 self.log("📝 [3/6] Preenchendo os campos da Modal (Processo, Tipo de Nota e Assunto)...")
 
-                # 2. SELEÇÃO DO PROCESSO*
+                # 2. SELEÇÃO DO PROCESSO* (com verificação de campo desativado/cinza)
                 try:
                     proc_select = modal.locator("ng-select").first
                     if not await proc_select.is_visible(timeout=2000):
                         proc_select = page.locator("ng-select").first
 
+                    # Se o campo de processo estiver desativado/cinza, fecha a modal e clica em 'Criar uma nota' novamente
+                    is_disabled = await proc_select.locator(".ng-select-disabled").count() > 0 or await proc_select.get_attribute("aria-disabled") == "true"
+                    val_text_init = await proc_select.inner_text()
+                    
+                    if is_disabled or ("LATAM" not in val_text_init and "Logistics" not in val_text_init and await proc_select.locator(".ng-value").count() == 0):
+                        # Testa interação para ver se responde
+                        await proc_select.scroll_into_view_if_needed()
+                        await proc_select.click(force=True)
+                        await asyncio.sleep(0.5)
+
+                        val_check = await proc_select.inner_text()
+                        if "LATAM" not in val_check and "Logistics" not in val_check and await page.locator(".ng-dropdown-panel").count() == 0:
+                            self.log("   ⚠️ Processo está desativado/cinza! Fechando e reabrindo modal 'Criar uma nota'...")
+                            close_btn = modal.locator("button.close, .modal-header .close, button:has-text('Cancelar'), button:has-text('Close')").first
+                            if await close_btn.is_visible(timeout=2000):
+                                await close_btn.click(force=True)
+                            else:
+                                await page.keyboard.press("Escape")
+                            
+                            await asyncio.sleep(1.5)
+                            
+                            # Reabre a modal clicando em Criar uma nota novamente
+                            create_note_btn = page.locator("button:has-text('CRIAR UMA NOTA'), button:has-text('Criar uma nota')").first
+                            if await create_note_btn.is_visible(timeout=2000):
+                                await create_note_btn.click(force=True)
+                                await asyncio.sleep(2)
+                                modal = page.locator(".modal-content, div.modal-dialog").first
+                                proc_select = modal.locator("ng-select").first
+
+                    # Realiza a seleção do Processo
                     await proc_select.scroll_into_view_if_needed()
                     await proc_select.click(force=True)
                     await asyncio.sleep(0.5)
@@ -400,7 +430,6 @@ class CHEPBotEngine:
                     
                     await asyncio.sleep(0.8)
 
-                    # Tenta clicar na opção do dropdown da modal
                     opt_log = page.locator(".ng-dropdown-panel .ng-option, ng-dropdown-panel .ng-option").filter(has_text="Logistics").first
                     if await opt_log.is_visible(timeout=2000):
                         await opt_log.click(force=True)
@@ -409,10 +438,9 @@ class CHEPBotEngine:
 
                     await asyncio.sleep(0.8)
 
-                    # VERIFICAÇÃO DE SEGURANÇA: Se não fixou o valor, força foco no input e Enter
                     val_text = await proc_select.inner_text()
                     if "Logistics" not in val_text and "LATAM" not in val_text:
-                        self.log("   ⚠️ O Processo não fixou na 1ª tentativa, forçando re-preenchimento direto...")
+                        self.log("   ⚠️ Re-tentando selecionar Processo...")
                         arrow = proc_select.locator(".ng-arrow-wrapper, .ng-select-container").first
                         await arrow.click(force=True)
                         await asyncio.sleep(0.5)
