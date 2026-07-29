@@ -457,19 +457,28 @@
             <span>📋 Deliveries Monitoradas</span>
             <span id="mon_profile_badge" class="profile-indicator">Perfil: BR__LH_PURM2</span>
           </div>
-          <textarea id="daily_deliveries_box" onchange="syncDailyDeliveriesToServer()" oninput="syncDailyDeliveriesToServer()" placeholder="Digite uma delivery por linha..."></textarea>
 
-          <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+          <!-- CAMPO DEDICADO DO PAINEL DIREITO PARA MONITORAR / VERIFICAR -->
+          <div style="margin-top: 10px; margin-bottom: 10px;">
+            <label style="font-size: 12px; font-weight: 700; color: var(--accent-purple); display: block; margin-bottom: 4px;">Digitar Delivery para Verificar / Monitorar:</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="right_delivery" class="input-field" placeholder="Ex: 3788216684" style="flex: 1;" onkeydown="if(event.key==='Enter'){ event.preventDefault(); verifySingleDelivery(); }">
+              <button type="button" class="btn-conn" style="background: var(--accent-blue);" onclick="verifySingleDelivery()">🔍 Verificar</button>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+            <label class="checkbox-group" style="margin: 0;" title="Marcado: adiciona a delivery à lista de monitoramento automático. Desmarcado: verifica apenas uma vez.">
+              <input type="checkbox" id="chk_auto_mon" checked>
+              <span style="font-size: 12px; font-weight: 700; color: var(--accent-purple);">📌 Adicionar ao Monitoramento (20 min)</span>
+            </label>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
             <button type="button" class="btn-conn" style="background: #7c3aed; width: 100%; justify-content: center;" onclick="checkRepliesNow()">🔍 Verificar Agora (Monitoradas)</button>
           </div>
 
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-wrap: wrap; gap: 8px;">
-            <label class="checkbox-group" style="margin: 0;" title="Marcado: adiciona à lista de monitoramento automático (20 min). Desmarcado: verifica só uma vez.">
-              <input type="checkbox" id="chk_auto_mon">
-              <span style="font-size: 12px; font-weight: 700; color: var(--accent-purple);">📌 Adicionar ao Monitoramento (20 min)</span>
-            </label>
-            <button type="button" class="btn-conn" style="background: var(--accent-blue);" onclick="verifySingleDelivery()" title="Verificar status apenas da delivery digitada na caixa da esquerda">🔍 Verificar</button>
-          </div>
+          <textarea id="daily_deliveries_box" onchange="syncDailyDeliveriesToServer()" oninput="syncDailyDeliveriesToServer()" placeholder="Lista de deliveries em monitoramento..."></textarea>
 
           <!-- PAINEL DE STATUS DAS DELIVERIES (SEM ENCHER OS LOGS) -->
           <div style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
@@ -770,19 +779,19 @@
     }
 
     function verifySingleDelivery() {
-      const deliveryInput = document.getElementById('delivery');
-      const deliveryVal = deliveryInput.value.trim();
+      const rightInput = document.getElementById('right_delivery');
+      const deliveryVal = rightInput.value.trim();
       const profile = document.getElementById('profile').value;
       const shouldMonitor = document.getElementById('chk_auto_mon').checked;
 
       if (!deliveryVal) {
-        alert('Por favor, digite o número da Delivery no campo 1 para verificar!');
-        deliveryInput.focus();
+        alert('Por favor, digite o número da Delivery no painel de monitoramento!');
+        rightInput.focus();
         return;
       }
 
-      deliveryInput.value = '';
-      deliveryInput.focus();
+      rightInput.value = '';
+      rightInput.focus();
 
       fetch('/api/check_replies', {
         method: 'POST',
@@ -805,7 +814,7 @@
       const deliveryVal = deliveryInput.value.trim();
       
       if (!deliveryVal) {
-        alert('Por favor, informe o número da Delivery!');
+        alert('Por favor, informe o número da Delivery no Campo 1!');
         deliveryInput.focus();
         return;
       }

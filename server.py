@@ -97,12 +97,141 @@ def serve_screenshot(filename):
     shots_dir = os.path.join(BASE_DIR, "screenshots")
     return send_from_directory(shots_dir, filename)
 
+import urllib.request
+
+LOCAL_RENDER_CACHE_FILE = os.path.join(BASE_DIR, "local_render_state.json")
+OFFLINE_QUEUE_FILE = os.path.join(BASE_DIR, "render_offline_queue.json")
+RENDER_STORE_FILE = os.path.join(BASE_DIR, "render_state_db.json")
+
 # ==============================================================================
-# MÓDULO DE MONITORAMENTO AUTOMÁTICO SERVER-SIDE (20 MIN)
+# MÓDULO DE PERSISTÊNCIA E SINCRONIZAÇÃO COM O RENDER
 # ==============================================================================
 monitoring_lock = threading.Lock()
-monitored_deliveries = load_json(DAILY_DELIVERIES_FILE, default=[])
+monitored_deliveries = []
 active_profile = "BR__LH_PURM2"
+delivery_statuses = {}
+
+def sync_to_render_store():
+    """
+    Sincroniza imediatamente o estado das deliveries monitoradas com o Render / Cache Local.
+    """
+    state_payload = {}
+    now = time.time()
+    with monitoring_lock:
+        for d in list(monitored_deliveries):
+            st_data = delivery_statuses.get(d, {})
+            last_check_ts = st_data.get("updated_at", now)
+            created_at_ts = st_data.get("created_at", now)
+            next_check_ts = last_check_ts + 1200
+
+            state_payload[d] = {
+                "delivery": str(d),
+                "contador": st_data.get("count", 0),
+                "ultima_verificacao": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(last_check_ts)),
+                "ultima_verificacao_ts": last_check_ts,
+                "proxima_verificacao": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(next_check_ts)),
+                "proxima_verificacao_ts": next_check_ts,
+                "monitorando": True,
+                "created_at": created_at_ts,
+                "status": st_data.get("status", "yellow"),
+                "last_sent": st_data.get("last_sent", None)
+            }
+
+    save_json(LOCAL_RENDER_CACHE_FILE, state_payload)
+
+    def push_remote():
+        render_url = os.getenv("RENDER_STORE_URL", "https://ocorrenciaschep.onrender.com/api/render_store")
+        try:
+            req = urllib.request.Request(
+                render_url,
+                data=json.dumps(state_payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status == 200:
+                    pass
+        except Exception:
+            save_json(OFFLINE_QUEUE_FILE, state_payload)
+
+    threading.Thread(target=push_remote, daemon=True).start()
+
+def restore_from_render_store():
+    """
+    Ao iniciar o Flask no Host Local: conecta ao Render (ou cache local),
+    reconstrói a lista, contadores (0/4), horários e recalcula os timers.
+    """
+    append_log("[RENDER] Conectando ao Render / banco de persistência...")
+    render_url = os.getenv("RENDER_STORE_URL", "https://ocorrenciaschep.onrender.com/api/render_store")
+    remote_data = None
+
+    try:
+        req = urllib.request.Request(render_url, headers={'User-Agent': 'CHEPBotLocal/1.0'})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            if resp.status == 200:
+                remote_data = json.loads(resp.read().decode('utf-8'))
+                append_log("[RENDER] Conexão bem-sucedida! Dados restaurados do Render.")
+    except Exception as e:
+        append_log(f"[RENDER] Conexão direta indisponível ({e}). Carregando do cache de persistência local...")
+        remote_data = load_json(LOCAL_RENDER_CACHE_FILE, default={})
+
+    if not remote_data or not isinstance(remote_data, dict):
+        append_log("[RENDER] Nenhuma delivery ativa encontrada na persistência.")
+        return
+
+    now = time.time()
+    overdue_deliveries = []
+    restored_count = 0
+
+    with monitoring_lock:
+        monitored_deliveries.clear()
+        for deliv, item in remote_data.items():
+            if not isinstance(item, dict):
+                continue
+
+            created_at = item.get("created_at", now)
+            # Limpeza automática diária: descarta registros com mais de 24 horas
+            if now - created_at > 86400:
+                append_log(f"[RENDER] Delivery #{deliv} expirada (>24h). Removida automaticamente.")
+                continue
+
+            if item.get("monitorando", True):
+                deliv_str = str(deliv).strip()
+                if deliv_str not in monitored_deliveries:
+                    monitored_deliveries.append(deliv_str)
+
+                count_val = item.get("contador", 0)
+                st_val = item.get("status", "yellow")
+                last_sent_val = item.get("last_sent", None)
+                last_check_ts = item.get("ultima_verificacao_ts", now)
+                next_check_ts = item.get("proxima_verificacao_ts", last_check_ts + 1200)
+
+                delivery_statuses[deliv_str] = {
+                    "status": st_val,
+                    "count": count_val,
+                    "last_sent": last_sent_val,
+                    "updated_at": last_check_ts,
+                    "created_at": created_at
+                }
+                restored_count += 1
+
+                # Recalcula temporizadores
+                if now >= next_check_ts:
+                    append_log(f"[RENDER] Delivery #{deliv_str} (Contador {count_val}/4) com horário vencido. Agendando verificação imediata...")
+                    overdue_deliveries.append(deliv_str)
+                else:
+                    rem_min = int((next_check_ts - now) // 60)
+                    append_log(f"[RENDER] Delivery #{deliv_str} restaurada (Contador: {count_val}/4, próxima verificação em {rem_min} min).")
+
+        save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
+
+    if restored_count > 0:
+        append_log(f"[RENDER] Restauração concluída: {restored_count} delivery(ies) ativa(s) no monitoramento.")
+
+    if overdue_deliveries:
+        def run_overdue():
+            run_verification_cycle(overdue_deliveries, profile=active_profile, mode="initial")
+        threading.Thread(target=run_overdue, daemon=True).start()
 
 saved_time_obj = load_json(LAST_CHECK_FILE, default={})
 if isinstance(saved_time_obj, dict) and "last_check_time" in saved_time_obj:
@@ -181,6 +310,7 @@ def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="ma
             save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
             append_log("[MONITOR] Monitoramento concluído. Próxima execução em 20 minutos.")
 
+        sync_to_render_store()
         return answered
     except Exception as e:
         append_log(f"⚠️ Erro ao verificar respostas: {e}")
@@ -201,13 +331,14 @@ def add_delivery_to_monitoring(delivery: str, profile: str = "BR__LH_PURM2"):
         if delivery not in monitored_deliveries:
             monitored_deliveries.append(delivery)
             save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
-            delivery_statuses[delivery] = {"status": "yellow", "count": 0, "last_sent": None, "updated_at": time.time()}
+            delivery_statuses[delivery] = {"status": "yellow", "count": 0, "last_sent": None, "updated_at": time.time(), "created_at": time.time()}
             append_log(f"[MONITOR] Delivery {delivery} adicionada ao monitoramento.")
             added = True
         else:
             append_log(f"[MONITOR] Delivery {delivery} já está na lista de monitoramento.")
 
     if added:
+        sync_to_render_store()
         def do_initial():
             run_verification_cycle([delivery], profile=profile, mode="initial")
         threading.Thread(target=do_initial, daemon=True).start()
@@ -226,8 +357,12 @@ def remove_delivery_from_monitoring(delivery: str):
             if delivery in delivery_statuses:
                 del delivery_statuses[delivery]
             append_log(f"[MONITOR] Delivery {delivery} removida do monitoramento.")
+            sync_to_render_store()
             return True
         return False
+
+# Executa restauração do Render / cache local antes de iniciar o scheduler
+restore_from_render_store()
 
 def global_monitoring_scheduler():
     """
@@ -249,6 +384,20 @@ def global_monitoring_scheduler():
                 save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
 
 threading.Thread(target=global_monitoring_scheduler, daemon=True).start()
+
+@app.route("/api/render_store", methods=["GET", "POST"])
+def handle_render_store():
+    """
+    Endpoint de armazenamento no Render.
+    O Render armazena e disponibiliza o JSON de estado sem executar Playwright/automações.
+    """
+    if request.method == "POST":
+        data = request.json or {}
+        save_json(RENDER_STORE_FILE, data)
+        return jsonify({"success": True, "stored_count": len(data)})
+    else:
+        stored = load_json(RENDER_STORE_FILE, default={})
+        return jsonify(stored)
 
 @app.route("/api/logs")
 def get_logs():
