@@ -533,6 +533,8 @@
 
       if (sel.value.includes('deslocamento')) {
         document.getElementById('chk_contact').checked = true;
+        document.getElementById('chk_location').checked = false;
+        toggleLocation();
       } else {
         document.getElementById('chk_contact').checked = false;
       }
