@@ -478,7 +478,7 @@
             <button type="button" class="btn-conn" style="background: #7c3aed; width: 100%; justify-content: center;" onclick="checkRepliesNow()">🔍 Verificar Agora (Monitoradas)</button>
           </div>
 
-          <textarea id="daily_deliveries_box" onchange="syncDailyDeliveriesToServer()" oninput="syncDailyDeliveriesToServer()" placeholder="Lista de deliveries em monitoramento..."></textarea>
+          <textarea id="daily_deliveries_box" readonly placeholder="Lista de deliveries em monitoramento (adicione pelo campo acima)..."></textarea>
 
           <!-- PAINEL DE STATUS DAS DELIVERIES (SEM ENCHER OS LOGS) -->
           <div style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
@@ -739,7 +739,7 @@
         if (data.last_check_time) globalLastCheckTime = data.last_check_time;
         if (data.server_time) globalServerTime = data.server_time;
 
-        if (data.monitored_deliveries && document.activeElement !== document.getElementById('daily_deliveries_box')) {
+        if (data.monitored_deliveries) {
           document.getElementById('daily_deliveries_box').value = data.monitored_deliveries.join('\n');
         }
 
