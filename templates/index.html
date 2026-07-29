@@ -745,6 +745,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deliveries: deliveries, profile: profile })
       }).then(res => res.json()).then(data => {
+        if (data.last_check_time) globalLastCheckTime = data.last_check_time;
+        if (data.server_time) globalServerTime = data.server_time;
         if (data.statuses) renderStatuses(data.statuses);
         if (isManual) {
           if (data.answered_deliveries && data.answered_deliveries.length > 0) {
@@ -853,14 +855,6 @@
       updateProfileIndicator();
       toggleLocation();
       fetchLogs();
-
-      // Se a caixa "Monitorar a cada 20 min" estiver marcada na abertura da página, inicia o timer automático
-      if (document.getElementById('chk_auto_mon').checked) {
-        monitorTimer = setInterval(() => {
-          console.log("⏰ [Timer 20 min] Executando verificação automática das deliveries monitoradas...");
-          checkRepliesNow();
-        }, 1200000);
-      }
     });
 
     // --- Lógica de Aprovação Visual ---

@@ -297,10 +297,23 @@ def check_replies():
             elif is_overdue:
                 append_log(f"⏰ Delivery #{deliv} marcada com ALERTA > 1H ({last_time})!")
 
-        return jsonify({"success": True, "answered_deliveries": [item[0] for item in answered if item[1]], "statuses": delivery_statuses})
+        return jsonify({
+            "success": True, 
+            "answered_deliveries": [item[0] for item in answered if item[1]], 
+            "statuses": delivery_statuses,
+            "last_check_time": last_check_time,
+            "server_time": time.time()
+        })
     except Exception as e:
         append_log(f"⚠️ Erro ao verificar respostas: {e}")
-        return jsonify({"success": False, "error": str(e), "answered_deliveries": [], "statuses": delivery_statuses})
+        return jsonify({
+            "success": False, 
+            "error": str(e), 
+            "answered_deliveries": [], 
+            "statuses": delivery_statuses,
+            "last_check_time": last_check_time,
+            "server_time": time.time()
+        })
 
 @app.route("/api/save_daily_deliveries", methods=["POST"])
 def save_daily_deliveries():
