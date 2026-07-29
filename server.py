@@ -20,10 +20,6 @@ LAST_CHECK_FILE = os.path.join(BASE_DIR, "last_check_time.json")
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
-# Limpa a lista de deliveries monitoradas a cada reinício/push do servidor
-# (o usuário adiciona manualmente via interface, não persiste entre restarts)
-save_json(DAILY_DELIVERIES_FILE, [])
-
 def load_json(filepath, default=[]):
     if os.path.exists(filepath):
         try:
@@ -39,6 +35,10 @@ def save_json(filepath, data):
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"Erro ao salvar json: {e}")
+
+# Limpa a lista de deliveries monitoradas a cada reinício/push do servidor
+# (o usuário adiciona manualmente via interface, não persiste entre restarts)
+save_json(DAILY_DELIVERIES_FILE, [])
 
 LOGS_FILE = os.path.join(BASE_DIR, "logs_history.json")
 
