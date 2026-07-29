@@ -344,18 +344,10 @@ class CHEPBotEngine:
                 if not is_modal_already_open:
                     self.log(f"   👉 Marcando a caixa da Entrega #{delivery_clean}...")
                     try:
-                        # Tenta localizar o card da Entrega específica
-                        delivery_container = page.locator(f"div:has-text('{delivery_clean}')").last
-                        chk_entrega = delivery_container.locator("input[type='checkbox']").first
-                        
+                        # 1. Procura a caixa de seleção específica da entrega com filtro exato
+                        chk_entrega = page.locator(".cardWidget, tr, div").filter(has_text=delivery_clean).locator("input[type='checkbox']").first
                         if not await chk_entrega.is_visible(timeout=1500):
-                            # Fallback: Seleciona o checkbox da entrega na lista (geralmente o segundo checkbox na página)
-                            all_chks = page.locator("input[type='checkbox']")
-                            count_chks = await all_chks.count()
-                            if count_chks > 1:
-                                chk_entrega = all_chks.nth(1)
-                            elif count_chks == 1:
-                                chk_entrega = all_chks.first
+                            chk_entrega = page.locator("input[type='checkbox']").first
 
                         if await chk_entrega.is_visible(timeout=2000):
                             if not await chk_entrega.is_checked():
@@ -365,23 +357,19 @@ class CHEPBotEngine:
                     except Exception as e_row:
                         self.log(f"   ⚠️ Aviso ao marcar checkbox da entrega: {e_row}")
 
-                    # Clica no botão CRIAR UMA NOTA dentro do card da entrega
-                    create_note_btn = page.locator(f"button:has-text('CRIAR UMA NOTA'), button:has-text('Criar uma nota'), button:has-text('Create note')").first
+                    # Clica no botão CRIAR UMA NOTA dentro da barra superior ou da entrega
+                    create_note_btn = page.locator("button:has-text('CRIAR UMA NOTA'), button:has-text('Criar uma nota'), button:has-text('Create note'), a:has-text('Criar uma nota')").first
                     if not await create_note_btn.is_visible(timeout=2500):
                         create_note_btn = page.get_by_role('button', name='Criar uma nota')
 
-                    # Print 5: Antes de clicar no botão Criar uma Nota
                     await self.save_debug_screenshot(page, "debug_05_botao_criar_nota", "Print 5 - Botão Criar Nota")
                     
-                    try:
-                        await create_note_btn.click(timeout=8000)
-                    except Exception:
-                        try:
-                            await create_note_btn.click(force=True, timeout=8000)
-                        except Exception as click_err:
-                            self.log(f"   ❌ Falha ao clicar no botão 'Criar uma nota': {click_err}")
-                            await self.save_debug_screenshot(page, "debug_erro_criar_nota", "Print Erro - Botão Criar Nota")
-                            raise click_err
+                    if await create_note_btn.is_visible(timeout=3000):
+                        await create_note_btn.click(force=True)
+                        self.log("   🟢 Botão 'Criar uma nota' clicado com sucesso!")
+                    else:
+                        self.log("   ⚠️ Tentando acionar botão de criar nota...")
+                        await page.keyboard.press("Enter")
                     
                     await asyncio.sleep(2.5)
 
