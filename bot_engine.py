@@ -664,12 +664,16 @@ class CHEPBotEngine:
             await table_rows.first.click()
             await asyncio.sleep(2)
 
-            editor = contact_page.locator(".ql-editor, [contenteditable='true']").first
+            # Localiza especificamente a caixa 'Add a message...' do painel direito
+            editor = contact_page.locator("div.ql-editor[contenteditable='true'], [placeholder*='Add a message'] .ql-editor, .ql-container .ql-editor").last
+            if not await editor.is_visible(timeout=2000):
+                editor = contact_page.locator("[contenteditable='true']").last
+
             await editor.wait_for(state="visible", timeout=6000)
             await editor.click(force=True)
             await asyncio.sleep(0.5)
 
-            # Preenche diretamente a propriedade p/ Quill e foca no teclado
+            # Preenche diretamente a propriedade p/ Quill no painel direito
             paragraphs = reply_message.replace('\r\n', '\n').split('\n\n')
             html_blocks = [f'<p>{p.strip().replace('\n', " ")}</p>' for p in paragraphs if p.strip()]
             html_formatted = "".join(html_blocks)
@@ -682,7 +686,8 @@ class CHEPBotEngine:
             }""", html_formatted)
             
             await asyncio.sleep(0.5)
-            # Garante digitando pelo teclado caso a biblioteca Quill exija evento de tecla
+            # Digita uma tecla no editor focado do lado direito
+            await editor.press("End")
             await contact_page.keyboard.type(" ", delay=50)
             await contact_page.keyboard.press("Backspace")
             await asyncio.sleep(1)
