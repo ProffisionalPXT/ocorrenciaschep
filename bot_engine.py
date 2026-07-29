@@ -498,13 +498,15 @@ class CHEPBotEngine:
                 await ql_editor.wait_for(state="visible", timeout=4000)
                 await ql_editor.click(force=True)
                 
-                # Formata respeitando quebras duplas de linha (\n\n) mantendo o parágrafo limpo
+                # Formata respeitando quebras duplas de linha (\n\n) injetando um <p><br></p> visível
                 paragraphs = description.replace('\r\n', '\n').split('\n\n')
                 html_blocks = []
-                for p in paragraphs:
+                for idx, p in enumerate(paragraphs):
                     p_clean = p.strip().replace('\n', ' ')
                     if p_clean:
-                        html_blocks.append(f'<p style="margin: 0 0 10px 0; padding: 0; line-height: 1.4;">{p_clean}</p>')
+                        html_blocks.append(f'<p>{p_clean}</p>')
+                        if idx < len(paragraphs) - 1:
+                            html_blocks.append('<p><br></p>')
                 
                 html_formatted = "".join(html_blocks)
                 await ql_editor.evaluate("(el, html) => { el.innerHTML = html; el.dispatchEvent(new Event('input', { bubbles: true })); }", html_formatted)
@@ -673,9 +675,15 @@ class CHEPBotEngine:
             await editor.click(force=True)
             await asyncio.sleep(0.5)
 
-            # Preenche diretamente a propriedade p/ Quill no painel direito
+            # Preenche respeitando linha em branco dupla (<p><br></p>) entre os blocos de texto
             paragraphs = reply_message.replace('\r\n', '\n').split('\n\n')
-            html_blocks = [f'<p>{p.strip().replace('\n', " ")}</p>' for p in paragraphs if p.strip()]
+            html_blocks = []
+            for idx, p in enumerate(paragraphs):
+                p_clean = p.strip().replace('\n', " ")
+                if p_clean:
+                    html_blocks.append(f'<p>{p_clean}</p>')
+                    if idx < len(paragraphs) - 1:
+                        html_blocks.append('<p><br></p>')
             html_formatted = "".join(html_blocks)
 
             await editor.evaluate("""(el, html) => {
