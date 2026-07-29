@@ -631,7 +631,9 @@
       const newText = deliveries.join('\n');
       document.getElementById('daily_deliveries_box').value = newText;
       
+      delete deliveryTimers[deliveryNum];
       syncDailyDeliveriesToServer();
+      fetchLogs();
     }
 
     const deliveryTimers = {};
