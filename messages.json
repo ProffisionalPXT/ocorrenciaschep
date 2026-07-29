@@ -42,6 +42,18 @@
     "text": "Por falta de retorno e exceder o limite de 2H de espera e não ter sucesso na coleta estamos retirando o veiculo do local.\n\nFavor, bloquear a delivery"
   },
   {
+    "id": "resposta_1",
+    "title": "MODO RESPOSTA 1 - Aguardando início do carregamento (Envio no 2º Site)",
+    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
+    "text": "Veiculo segue no local aguardando inicio do carregamento.\n\nFavor, verificar e como proceder."
+  },
+  {
+    "id": "resposta_2",
+    "title": "MODO RESPOSTA 2 - Aguardando novas informações (Envio no 2º Site)",
+    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
+    "text": "Veiculo segue no local aguardando novas informações e como proceder.\n\nFavor, verificar e como proceder."
+  },
+  {
     "id": "criacao_de_linha_geral",
     "title": "CRIAÇÃO DE LINHAS (Qtd Paletes + Qtd NFs)",
     "note_type": "SAP (Not App) CRIAÇÃO DE LINHAS",
