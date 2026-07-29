@@ -384,30 +384,22 @@ class CHEPBotEngine:
 
                 # 2. SELEÇÃO DO PROCESSO*
                 try:
-                    # Encontra a caixinha do ng-select de Processo
-                    proc_container = modal.locator("ng-select").first
-                    if not await proc_container.is_visible(timeout=2000):
-                        proc_container = page.locator("ng-select").first
+                    # Clica diretamente na caixinha ou input do primeiro ng-select da modal
+                    proc_select = modal.locator("ng-select").first
+                    if not await proc_select.is_visible(timeout=2000):
+                        proc_select = page.locator("ng-select").first
 
-                    # Tenta clicar no wrapper da seta ou na caixa principal do ng-select
-                    arrow = proc_container.locator(".ng-arrow-wrapper, .ng-select-container").first
-                    if await arrow.is_visible(timeout=2000):
-                        await arrow.click(force=True)
-                    else:
-                        await proc_container.click(force=True)
-                    
-                    await asyncio.sleep(0.5)
+                    # Clica no container do ng-select para abrir a lista
+                    await proc_select.click(force=True)
+                    await asyncio.sleep(0.8)
 
-                    # Digita a palavra chave para filtrar no dropdown do Angular
-                    await page.keyboard.type("Logistics", delay=50)
-                    await asyncio.sleep(0.5)
+                    # Digita "Logistics" para filtrar no dropdown
+                    await page.keyboard.type("Logistics", delay=100)
+                    await asyncio.sleep(0.8)
 
-                    # Seleciona a opção LATAM - Brazil - Logistics
-                    opt_log = page.locator(".ng-option").filter(has_text="Logistics").first
-                    if not await opt_log.is_visible(timeout=1500):
-                        opt_log = page.get_by_text("LATAM - Brazil - Logistics").first
-
-                    if await opt_log.is_visible(timeout=1500):
+                    # Clica na opção contendo Logistics
+                    opt_log = page.locator(".ng-option, span, div").filter(has_text="Logistics").first
+                    if await opt_log.is_visible(timeout=2000):
                         await opt_log.click(force=True)
                     else:
                         await page.keyboard.press("Enter")
