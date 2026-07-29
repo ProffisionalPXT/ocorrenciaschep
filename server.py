@@ -38,6 +38,7 @@ def save_json(filepath, data):
 
 logs_list = ["Servidor Web do CHEP Bot iniciado. Acesse pelo PC ou Celular!"]
 delivery_statuses = {}
+monitor_check_count = 0
 
 def append_log(msg: str):
     timestamp = time.strftime("[%H:%M:%S] ")
@@ -243,10 +244,17 @@ def check_replies():
     if not deliveries_to_check:
         return jsonify({"success": True, "message": "Nenhuma delivery para verificar.", "answered_deliveries": [], "statuses": delivery_statuses})
 
-    global last_check_time
+    global last_check_time, monitor_check_count
+    monitor_check_count += 1
+    
+    # A cada 2 monitoramentos, limpa os logs antigos da caixa mantendo apenas um aviso do ciclo
+    if monitor_check_count % 2 == 1:
+        logs_list.clear()
+        logs_list.append(f"🧹 [Logs] Histórico zerado para os próximos 2 ciclos de monitoramento (#{monitor_check_count}).")
+
     last_check_time = time.time()
     save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
-    append_log(f"🔍 [Monitor] Verificando respostas pendentes no Service Desk ({profile})...")
+    append_log(f"🔍 [Monitor #{monitor_check_count}] Verificando respostas pendentes no Service Desk ({profile})...")
     try:
         fut = asyncio.run_coroutine_threadsafe(
             engine.check_pending_carrier_replies(deliveries_to_check, profile_name=profile),
