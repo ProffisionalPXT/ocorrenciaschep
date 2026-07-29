@@ -664,20 +664,27 @@ class CHEPBotEngine:
             await table_rows.first.click()
             await asyncio.sleep(2)
 
-            editor = contact_page.locator(".ql-editor, [contenteditable='true'], textarea").first
+            editor = contact_page.locator(".ql-editor, [contenteditable='true']").first
             await editor.wait_for(state="visible", timeout=6000)
             await editor.click(force=True)
             await asyncio.sleep(0.5)
 
-            # Usa evaluate/keyboard para preencher o Quill da tela do Service Desk
+            # Preenche diretamente a propriedade p/ Quill e foca no teclado
             paragraphs = reply_message.replace('\r\n', '\n').split('\n\n')
             html_blocks = [f'<p>{p.strip().replace('\n', " ")}</p>' for p in paragraphs if p.strip()]
             html_formatted = "".join(html_blocks)
 
-            try:
-                await editor.evaluate("(el, html) => { el.innerHTML = html; el.dispatchEvent(new Event('input', { bubbles: true })); }", html_formatted)
-            except Exception:
-                await contact_page.keyboard.insert_text(reply_message)
+            await editor.evaluate("""(el, html) => {
+                el.focus();
+                el.innerHTML = html;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }""", html_formatted)
+            
+            await asyncio.sleep(0.5)
+            # Garante digitando pelo teclado caso a biblioteca Quill exija evento de tecla
+            await contact_page.keyboard.type(" ", delay=50)
+            await contact_page.keyboard.press("Backspace")
             await asyncio.sleep(1)
 
             send_btn = contact_page.locator("button:has(.fa-paper-plane), button:has-text('Send'), button.btn-primary:has(svg)").first
