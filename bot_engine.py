@@ -607,14 +607,15 @@ class CHEPBotEngine:
         profile_name: str = "BR__LH_PURM2",
         attachment_path: str = None
     ) -> str:
-        return await self.create_contact_chep_response(delivery_number, message_text, profile_name)
+        return await self.create_contact_chep_response(delivery_number, message_text, profile_name, attachment_path=attachment_path)
 
     async def create_contact_chep_response(
         self,
         delivery_number: str,
         reply_message: str,
         profile_name: str = "BR__LH_PURM2",
-        test_mode: bool = False
+        test_mode: bool = False,
+        attachment_path: str = None
     ) -> str:
         contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk")
 
@@ -699,6 +700,27 @@ class CHEPBotEngine:
             await contact_page.keyboard.type(" ", delay=50)
             await contact_page.keyboard.press("Backspace")
             await asyncio.sleep(1)
+
+            # ANEXAR FOTO / ARQUIVO NO SERVICE DESK (2º SITE)
+            if attachment_path and os.path.exists(attachment_path):
+                self.log(f"📎 [Service Desk] Anexando foto/comprovante: {os.path.basename(attachment_path)}...")
+                try:
+                    file_input = contact_page.locator("input[type='file']").first
+                    if await file_input.count() > 0:
+                        await file_input.set_input_files(attachment_path)
+                        await asyncio.sleep(2)
+                        self.log("   🟢 [OK] Foto anexada no Service Desk com sucesso!")
+                    else:
+                        select_file_btn = contact_page.locator("a:has-text('or select a file'), label:has-text('or select a file'), :has-text('or select a file')").last
+                        if await select_file_btn.is_visible(timeout=3000):
+                            async with contact_page.expect_file_chooser() as fc_info:
+                                await select_file_btn.click(force=True)
+                            file_chooser = await fc_info.value
+                            await file_chooser.set_files(attachment_path)
+                            await asyncio.sleep(2)
+                            self.log("   🟢 [OK] Foto anexada clicando em 'or select a file'!")
+                except Exception as e_att:
+                    self.log(f"   ⚠️ Falha ao anexar no Service Desk: {e_att}")
 
             send_btn = contact_page.locator("button:has(.fa-paper-plane), button:has-text('Send'), button.btn-primary:has(svg)").first
             if await send_btn.is_visible(timeout=3000):
