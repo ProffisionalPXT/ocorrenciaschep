@@ -689,19 +689,30 @@
       list.innerHTML = deliveries.map(d => {
         const stObj = statuses ? statuses[d] : null;
         const st = (typeof stObj === 'object' && stObj !== null) ? stObj.status : (stObj || 'yellow');
+        const count = (typeof stObj === 'object' && stObj !== null && stObj.count !== undefined) ? stObj.count : 0;
         const lastSentStr = (typeof stObj === 'object' && stObj !== null && stObj.last_sent) ? stObj.last_sent : '';
 
-        let statusHtml = `<span>🟡 #${d} - ⏱️ Próximo em: <strong id="timer_val_${d}">${timerStr}</strong> ${lastSentStr ? '('+lastSentStr+')' : ''}</span>`;
+        const countBadge = `<span style="background: rgba(255,255,255,0.15); border-radius: 4px; padding: 1px 6px; margin-left: 4px; font-weight: 800; font-size: 11px;">${count}/4</span>`;
+
+        let statusHtml = `<span>🟡 #${d} ${countBadge} - ⏱️ Próximo em: <strong id="timer_val_${d}">${timerStr}</strong> ${lastSentStr ? '('+lastSentStr+')' : ''}</span>`;
+        let containerClass = st;
+        let containerStyle = '';
+
         if (st === 'purple') {
-          statusHtml = `<span>🟣 #${d} - RESPONDIDA PELA CHEP ⏱️ <strong id="timer_val_${d}">${timerStr}</strong></span>`;
+          statusHtml = `<span>🟣 #${d} ${countBadge} - RESPONDIDA PELA CHEP ⏱️ <strong id="timer_val_${d}">${timerStr}</strong></span>`;
+        } else if (count >= 3) {
+          // Destaque visual para 3/4 ou 4/4 (~60 min decorridos - Pronta para nova verificação)
+          containerClass = 'overdue';
+          containerStyle = 'background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.35)); border: 1px solid rgba(245, 158, 11, 0.7); box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);';
+          statusHtml = `<span style="color: #fbbf24; font-weight: 800;">🔔 #${d} ${countBadge} - PRONTA PARA NOVA VERIFICAÇÃO (~60 min) ⏱️ <strong id="timer_val_${d}">${timerStr}</strong></span>`;
         } else if (st === 'overdue') {
-          statusHtml = `<span style="color: #f97316; font-weight: 800;">⏰ #${d} - PASSOU DE 1H (Atualizar!) ⏱️ <strong id="timer_val_${d}">${timerStr}</strong></span>`;
+          statusHtml = `<span style="color: #f97316; font-weight: 800;">⏰ #${d} ${countBadge} - PASSOU DE 1H ⏱️ <strong id="timer_val_${d}">${timerStr}</strong></span>`;
         }
 
         return `
-          <div class="status-badge ${st}">
+          <div class="status-badge ${containerClass}" style="${containerStyle}">
             ${statusHtml}
-            <button type="button" onclick="removeDelivery('${d}')" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); color: #ef4444; border-radius: 6px; padding: 2px 8px; font-weight: 700; cursor: pointer;" title="Parar monitoramento">❌</button>
+            <button type="button" onclick="removeDelivery('${d}')" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); color: #ef4444; border-radius: 6px; padding: 2px 8px; font-weight: 700; cursor: pointer;" title="Parar e remover monitoramento">❌</button>
           </div>
         `;
       }).join('');
@@ -771,6 +782,7 @@
       }
 
       deliveryInput.value = '';
+      deliveryInput.focus();
 
       fetch('/api/check_replies', {
         method: 'POST',
@@ -789,11 +801,12 @@
 
     function submitCustomForm() {
       const form = document.getElementById('occForm');
-      const deliveryVal = document.getElementById('delivery').value.trim();
+      const deliveryInput = document.getElementById('delivery');
+      const deliveryVal = deliveryInput.value.trim();
       
       if (!deliveryVal) {
         alert('Por favor, informe o número da Delivery!');
-        document.getElementById('delivery').focus();
+        deliveryInput.focus();
         return;
       }
 
@@ -805,6 +818,9 @@
       formData.append('include_contact', document.getElementById('chk_contact').checked);
       formData.append('coleta_dia', isColetaDia);
 
+      deliveryInput.value = '';
+      deliveryInput.focus();
+
       fetch('/api/execute', {
         method: 'POST',
         body: formData
@@ -812,7 +828,6 @@
         alert(data.message);
         fetchLogs();
         clearPhoto();
-        document.getElementById('delivery').value = '';
       });
     }
 

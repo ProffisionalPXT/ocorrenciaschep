@@ -149,21 +149,31 @@ def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="ma
             async_loop
         )
         answered = fut.result(timeout=180) or []
-        for res_item in answered:
-            deliv = res_item[0]
-            is_purple = res_item[1]
-            is_overdue = res_item[2]
-            last_time = res_item[3] if len(res_item) > 3 else None
+        answered_dict = {item[0]: item for item in answered}
 
-            st_color = "purple" if is_purple else ("overdue" if is_overdue else "yellow")
+        for deliv in deliveries_to_check:
+            st_data = delivery_statuses.get(deliv, {"status": "yellow", "count": 0})
+            new_count = st_data.get("count", 0) + 1
+
+            if deliv in answered_dict:
+                res_item = answered_dict[deliv]
+                is_purple = res_item[1]
+                is_overdue = res_item[2]
+                last_time = res_item[3] if len(res_item) > 3 else None
+                st_color = "purple" if is_purple else ("overdue" if is_overdue else "yellow")
+            else:
+                st_color = st_data.get("status", "yellow")
+                last_time = st_data.get("last_sent", None)
+
             delivery_statuses[deliv] = {
                 "status": st_color,
+                "count": new_count,
                 "last_sent": last_time,
                 "updated_at": time.time()
             }
-            if is_purple:
+            if st_color == "purple":
                 append_log(f"🚨 Delivery #{deliv} atualizada para ROXO!")
-            elif is_overdue:
+            elif st_color == "overdue":
                 append_log(f"⏰ Delivery #{deliv} marcada com ALERTA > 1H ({last_time})!")
 
         if mode == "auto":
@@ -178,7 +188,7 @@ def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="ma
 
 def add_delivery_to_monitoring(delivery: str, profile: str = "BR__LH_PURM2"):
     """
-    Adiciona uma delivery à fila de monitoramento e engata verificação inicial imediata.
+    Adiciona uma delivery à fila de monitoramento com contador 0/4 e engata verificação inicial imediata.
     """
     global active_profile
     delivery = str(delivery).strip()
@@ -191,7 +201,7 @@ def add_delivery_to_monitoring(delivery: str, profile: str = "BR__LH_PURM2"):
         if delivery not in monitored_deliveries:
             monitored_deliveries.append(delivery)
             save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
-            delivery_statuses[delivery] = {"status": "yellow", "last_sent": None, "updated_at": time.time()}
+            delivery_statuses[delivery] = {"status": "yellow", "count": 0, "last_sent": None, "updated_at": time.time()}
             append_log(f"[MONITOR] Delivery {delivery} adicionada ao monitoramento.")
             added = True
         else:
