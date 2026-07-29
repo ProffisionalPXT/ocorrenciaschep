@@ -80,7 +80,11 @@ def serve_screenshot(filename):
     return send_from_directory(shots_dir, filename)
 
 saved_time_obj = load_json(LAST_CHECK_FILE, default={})
-last_check_time = saved_time_obj.get("last_check_time", time.time())
+if isinstance(saved_time_obj, dict) and "last_check_time" in saved_time_obj:
+    last_check_time = saved_time_obj["last_check_time"]
+else:
+    last_check_time = time.time()
+    save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
 
 @app.route("/api/logs")
 def get_logs():
