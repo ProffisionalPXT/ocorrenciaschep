@@ -304,34 +304,53 @@ def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="ma
                     new_count = cur_count + 1
                     new_status = "resposta_confirmada" if cur_confirmed else "resposta_encontrada"
 
+                now_ts   = time.time()
+                next_ts  = now_ts + 1200  # 20 min
                 delivery_statuses[deliv] = {
                     "status": new_status,
                     "resposta_encontrada": True,
+                    "requer_atencao": True,
                     "resposta_confirmada": new_confirmed,
                     "count": new_count,
+                    "ciclos_concluidos": new_count,
+                    "max_ciclos": 4,
+                    "timer_ativo": False,
+                    "perfil": delivery_statuses.get(deliv, {}).get("perfil", active_profile),
+                    "proxima_verificacao_ts": next_ts,
+                    "proxima_verificacao": int(next_ts * 1000),
                     "last_sent": last_time,
-                    "updated_at": time.time(),
-                    "created_at": st_data.get("created_at", time.time())
+                    "updated_at": now_ts,
+                    "created_at": st_data.get("created_at", now_ts)
                 }
             else:
-                # Estado 1: Aguardando resposta da CHEP (Sem timer, sem contador)
+                now_ts  = time.time()
+                next_ts = now_ts + 1200
                 delivery_statuses[deliv] = {
                     "status": "aguardando_resposta",
                     "resposta_encontrada": False,
+                    "requer_atencao": False,
                     "resposta_confirmada": False,
                     "count": 0,
+                    "ciclos_concluidos": 0,
+                    "max_ciclos": 4,
+                    "timer_ativo": True,
+                    "perfil": delivery_statuses.get(deliv, {}).get("perfil", active_profile),
+                    "proxima_verificacao_ts": next_ts,
+                    "proxima_verificacao": int(next_ts * 1000),
                     "last_sent": None,
-                    "updated_at": time.time(),
-                    "created_at": st_data.get("created_at", time.time())
+                    "updated_at": now_ts,
+                    "created_at": st_data.get("created_at", now_ts)
                 }
-                append_log(f"🟣 Delivery #{deliv}: Aguardando resposta da CHEP (sem timer).")
+                append_log(f"Delivery #{deliv}: Aguardando resposta da CHEP.")
 
-        if mode == "auto":
+        if mode in ("auto", "manual_agora"):
             last_check_time = time.time()
             save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
-            append_log("[MONITOR] Monitoramento concluído. Próxima execução em 20 minutos.")
+            append_log("[MONITOR] Verificacao concluida. Proxima em 20 min.")
 
-        sync_to_render_store()
+        # Salva estado local (sem Render)
+        save_json(LOCAL_STATE_FILE, delivery_statuses)
+        save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
         return answered
     except Exception as e:
         append_log(f"⚠️ Erro ao verificar respostas: {e}")
@@ -352,14 +371,23 @@ def add_delivery_to_monitoring(delivery: str, profile: str = "BR__LH_PURM2"):
         if delivery not in monitored_deliveries:
             monitored_deliveries.append(delivery)
             save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
+            now_ts = time.time()
+            next_ts = now_ts + 1200
             delivery_statuses[delivery] = {
                 "status": "aguardando_resposta",
                 "resposta_encontrada": False,
+                "requer_atencao": False,
                 "resposta_confirmada": False,
                 "count": 0,
+                "ciclos_concluidos": 0,
+                "max_ciclos": 4,
+                "timer_ativo": True,
+                "perfil": profile,
+                "proxima_verificacao_ts": next_ts,
+                "proxima_verificacao": int(next_ts * 1000),
                 "last_sent": None,
-                "updated_at": time.time(),
-                "created_at": time.time()
+                "updated_at": now_ts,
+                "created_at": now_ts
             }
             append_log(f"[MONITOR] Delivery {delivery} adicionada ao monitoramento (Estado: Aguardando resposta).")
             added = True
@@ -367,7 +395,7 @@ def add_delivery_to_monitoring(delivery: str, profile: str = "BR__LH_PURM2"):
             append_log(f"[MONITOR] Delivery {delivery} já está na lista de monitoramento.")
 
     if added:
-        sync_to_render_store()
+        save_json(LOCAL_STATE_FILE, delivery_statuses)
         def do_initial():
             run_verification_cycle([delivery], profile=profile, mode="initial")
         threading.Thread(target=do_initial, daemon=True).start()
@@ -386,7 +414,7 @@ def remove_delivery_from_monitoring(delivery: str):
             if delivery in delivery_statuses:
                 del delivery_statuses[delivery]
             append_log(f"[MONITOR] Delivery {delivery} removida do monitoramento.")
-            sync_to_render_store()
+            save_json(LOCAL_STATE_FILE, delivery_statuses)
             return True
         return False
 
@@ -450,10 +478,17 @@ def confirm_ok():
     delivery = str(data.get("delivery", "")).strip()
     with monitoring_lock:
         if delivery in delivery_statuses:
+            now_ts = time.time()
+            next_ts = now_ts + 1200
             delivery_statuses[delivery]["resposta_confirmada"] = True
-            delivery_statuses[delivery]["status"] = "resposta_confirmada"
-            append_log(f"✅ Resposta da Delivery #{delivery} confirmada pelo usuário (OK).")
-            sync_to_render_store()
+            delivery_statuses[delivery]["resposta_encontrada"] = False
+            delivery_statuses[delivery]["requer_atencao"] = False
+            delivery_statuses[delivery]["timer_ativo"] = True
+            delivery_statuses[delivery]["proxima_verificacao_ts"] = next_ts
+            delivery_statuses[delivery]["proxima_verificacao"] = int(next_ts * 1000)
+            delivery_statuses[delivery]["status"] = "aguardando_resposta"
+            append_log(f"✅ Resposta da Delivery #{delivery} confirmada pelo usuário (OK). Timer reiniciado.")
+            save_json(LOCAL_STATE_FILE, delivery_statuses)
             return jsonify({
                 "success": True,
                 "statuses": delivery_statuses,
