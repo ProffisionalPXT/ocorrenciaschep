@@ -16,8 +16,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 MESSAGES_FILE = os.path.join(BASE_DIR, "messages.json")
 DAILY_DELIVERIES_FILE = os.path.join(BASE_DIR, "daily_deliveries.json")
-LAST_CHECK_FILE = os.path.join(BASE_DIR, "last_check_time.json")
-UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
+LAST_CHECK_FILE       = os.path.join(BASE_DIR, "last_check_time.json")
+LOCAL_STATE_FILE      = os.path.join(BASE_DIR, "local_render_state.json")
+UPLOADS_DIR           = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 def load_json(filepath, default=[]):
@@ -36,33 +37,33 @@ def save_json(filepath, data):
     except Exception as e:
         print(f"Erro ao salvar json: {e}")
 
-# Limpa a lista de deliveries monitoradas a cada reinício/push do servidor
-# (o usuário adiciona manualmente via interface, não persiste entre restarts)
-save_json(DAILY_DELIVERIES_FILE, [])
+# Deliveries persistidas entre restarts - NAO limpar ao iniciar
 
 LOGS_FILE = os.path.join(BASE_DIR, "logs_history.json")
 
-# Carrega logs do disco ao iniciar para não perder com push/reset do host
-saved_logs_data = load_json(LOGS_FILE, default={"logs": ["Servidor Web do CHEP Bot iniciado. Acesse pelo PC ou Celular!"], "history": [], "count": 0})
-logs_list = saved_logs_data.get("logs", ["Servidor Web do CHEP Bot iniciado."])
-monitoring_runs_history = saved_logs_data.get("history", [])
-monitor_check_count = saved_logs_data.get("count", 0)
+# Carrega logs do disco ao iniciar
+_sl_raw = load_json(LOGS_FILE, default={"logs": ["Servidor CHEP Bot iniciado!"], "count": 0})
+if not isinstance(_sl_raw, dict):
+    _sl_raw = {"logs": ["Servidor CHEP Bot iniciado!"], "count": 0}
+logs_list = list(_sl_raw.get("logs", ["Servidor CHEP Bot iniciado!"]))
+monitoring_runs_history = []
+monitor_check_count = int(_sl_raw.get("count", 0))
 delivery_statuses = {}
+logs_lock = threading.Lock()
 
 def save_logs_disk():
-    save_json(LOGS_FILE, {
-        "logs": logs_list,
-        "history": monitoring_runs_history,
-        "count": monitor_check_count
-    })
+    with logs_lock:
+        save_json(LOGS_FILE, {"logs": logs_list[-500:], "count": monitor_check_count})
 
 def append_log(msg: str):
+    global monitor_check_count
     timestamp = time.strftime("[%H:%M:%S] ")
     full_msg = f"{timestamp}{msg}"
     print(full_msg)
-    logs_list.append(full_msg)
-    if monitoring_runs_history:
-        monitoring_runs_history[-1].append(full_msg)
+    with logs_lock:
+        logs_list.append(full_msg)
+        if len(logs_list) > 500:
+            logs_list[:] = logs_list[-500:]
     save_logs_disk()
 
 engine = CHEPBotEngine(log_callback=append_log)
@@ -266,17 +267,6 @@ def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="ma
         for d in deliveries_to_check:
             append_log(f"[MONITOR] Verificando delivery {d}...")
 
-    monitor_check_count += 1
-    current_run_logs = [f"{time.strftime('[%H:%M:%S] ')}🔍 [Monitor #{monitor_check_count}] Verificando respostas no Service Desk ({profile})..."]
-    monitoring_runs_history.append(current_run_logs)
-    if len(monitoring_runs_history) > 2:
-        monitoring_runs_history.pop(0)
-
-    logs_list.clear()
-    for run in monitoring_runs_history:
-        logs_list.extend(run)
-    save_logs_disk()
-
     try:
         fut = asyncio.run_coroutine_threadsafe(
             engine.check_pending_carrier_replies(deliveries_to_check, profile_name=profile),
@@ -400,8 +390,33 @@ def remove_delivery_from_monitoring(delivery: str):
             return True
         return False
 
-# Executa restauração do Render / cache local antes de iniciar o scheduler
-restore_from_render_store()
+# Carrega estado local ao iniciar (sem tentar Render - evita bloqueio no startup)
+def _load_local_state():
+    local = load_json(LOCAL_STATE_FILE, default={})
+    raw   = load_json(DAILY_DELIVERIES_FILE, default=[])
+    with monitoring_lock:
+        monitored_deliveries.clear()
+        if isinstance(local, dict) and local:
+            # Estado antigo: dict de status por delivery
+            for did, item in local.items():
+                did_str = str(did).strip()
+                if did_str and did_str not in monitored_deliveries:
+                    monitored_deliveries.append(did_str)
+                    if isinstance(item, dict):
+                        delivery_statuses[did_str] = item
+        elif raw:
+            for elem in raw:
+                if isinstance(elem, str) and elem.strip():
+                    monitored_deliveries.append(elem.strip())
+                elif isinstance(elem, dict) and elem.get('delivery'):
+                    did_str = str(elem['delivery']).strip()
+                    monitored_deliveries.append(did_str)
+                    delivery_statuses[did_str] = elem
+        save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
+    n = len(monitored_deliveries)
+    append_log(f'[SISTEMA] {n} delivery(ies) restaurada(s).' if n else '[SISTEMA] Sem deliveries salvas. Adicione pelo painel.')
+
+threading.Thread(target=_load_local_state, daemon=True).start()
 
 def global_monitoring_scheduler():
     """
@@ -472,16 +487,17 @@ def get_logs():
 
 @app.route("/api/connect_chrome", methods=["POST"])
 def connect_chrome():
-    data = request.json or {}
-    mode = data.get("mode", "cdp")
+    data    = request.json or {}
     profile = data.get("profile", "BR__LH_PURM2")
-    
-    fut = asyncio.run_coroutine_threadsafe(engine.get_browser_for_profile(profile), async_loop)
-    try:
-        fut.result(timeout=25)
-        return jsonify({"success": True, "mode": f"Chrome {profile} com 2 Abas Ativas (CMA + Service Desk)"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    def _open():
+        try:
+            fut = asyncio.run_coroutine_threadsafe(engine.get_browser_for_profile(profile), async_loop)
+            fut.result(timeout=30)
+            append_log(f"[CHROME] Navegador aberto para {profile}.")
+        except Exception as e:
+            append_log(f"[CHROME] Erro ao abrir Chrome ({profile}): {e}")
+    threading.Thread(target=_open, daemon=True).start()
+    return jsonify({"success": True, "mode": f"Chrome {profile} iniciando..."})
 
 @app.route("/api/execute", methods=["POST"])
 def execute_occurrence():
@@ -623,16 +639,33 @@ def check_replies():
             "server_time": time.time()
         })
 
-    # Verificação pontual / manual
-    answered = run_verification_cycle(deliveries_to_check, profile=profile, mode="manual")
+    # Verificação assíncrona: dispara em thread e responde imediatamente
+    def _run_check():
+        run_verification_cycle(deliveries_to_check, profile=profile, mode="manual")
+    threading.Thread(target=_run_check, daemon=True).start()
 
     return jsonify({
         "success": True,
-        "answered_deliveries": [item[0] for item in answered if item[1]],
+        "message": "Verificacao iniciada em background!",
         "statuses": delivery_statuses,
-        "last_check_time": last_check_time,
+        "monitored_deliveries": monitored_deliveries,
         "server_time": time.time()
     })
+
+@app.route("/api/check_now", methods=["POST"])
+def check_now():
+    """Dispara verificacao imediata de todas as deliveries monitoradas. Non-blocking."""
+    with monitoring_lock:
+        target = list(monitored_deliveries)
+    if not target:
+        return jsonify({"success": False, "message": "Nenhuma delivery em monitoramento.",
+                        "statuses": {}, "monitored_deliveries": []})
+    append_log(f"[VERIFICAR AGORA] Disparando verificacao para {len(target)} delivery(ies)...")
+    def _run():
+        run_verification_cycle(target, profile=active_profile, mode="manual_agora")
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"success": True, "message": f"Verificacao iniciada ({len(target)})!",
+                    "statuses": delivery_statuses, "monitored_deliveries": monitored_deliveries})
 
 @app.route("/api/remove_monitoring", methods=["POST"])
 def remove_monitoring():

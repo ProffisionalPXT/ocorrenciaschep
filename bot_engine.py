@@ -327,8 +327,8 @@ class CHEPBotEngine:
 
             modal = page.locator(".modal-content, .modal-dialog, [role='dialog'], div:has-text('Criação de notas')").last
 
-            max_modal_attempts = 4
-            modal_filled_success = False
+            max_modal_attempts = 3
+            modal_ready = False
 
             for attempt in range(1, max_modal_attempts + 1):
                 self.log(f"\n⏳ [2/6] Verificando e abrindo a Modal (Tentativa {attempt}/{max_modal_attempts})...")
@@ -380,44 +380,57 @@ class CHEPBotEngine:
                     pass
 
                 await self.save_debug_screenshot(page, "debug_06_modal_aberta", "Print 6 - Modal Aberta")
-                self.log("📝 [3/6] Preenchendo os campos da Modal (Processo, Tipo de Nota e Assunto)...")
 
-                # 2. SELEÇÃO DO PROCESSO* (com verificação de campo desativado/cinza)
+                # 2. SELEÇÃO DO PROCESSO* (com verificação de estado bloqueado/cinza e retry loop)
                 try:
                     proc_select = modal.locator("ng-select").first
                     if not await proc_select.is_visible(timeout=2000):
                         proc_select = page.locator("ng-select").first
 
-                    # Se o campo de processo estiver desativado/cinza, fecha a modal e clica em 'Criar uma nota' novamente
-                    is_disabled = await proc_select.locator(".ng-select-disabled").count() > 0 or await proc_select.get_attribute("aria-disabled") == "true"
+                    # Verifica se o campo de processo/modelo está desativado/cinza
+                    is_disabled = (
+                        await proc_select.locator(".ng-select-disabled").count() > 0 or
+                        await proc_select.get_attribute("aria-disabled") == "true" or
+                        await proc_select.get_attribute("disabled") is not None or
+                        "ng-select-disabled" in (await proc_select.get_attribute("class") or "")
+                    )
                     val_text_init = await proc_select.inner_text()
                     
                     if is_disabled or ("LATAM" not in val_text_init and "Logistics" not in val_text_init and await proc_select.locator(".ng-value").count() == 0):
-                        # Testa interação para ver se responde
+                        # Testa interatividade do campo
                         await proc_select.scroll_into_view_if_needed()
                         await proc_select.click(force=True)
                         await asyncio.sleep(0.5)
 
+                        has_panel = await page.locator(".ng-dropdown-panel").count() > 0
                         val_check = await proc_select.inner_text()
-                        if "LATAM" not in val_check and "Logistics" not in val_check and await page.locator(".ng-dropdown-panel").count() == 0:
-                            self.log("   ⚠️ Processo está desativado/cinza! Fechando e reabrindo modal 'Criar uma nota'...")
-                            close_btn = modal.locator("button.close, .modal-header .close, button:has-text('Cancelar'), button:has-text('Close')").first
-                            if await close_btn.is_visible(timeout=2000):
-                                await close_btn.click(force=True)
+                        
+                        if not has_panel and "LATAM" not in val_check and "Logistics" not in val_check:
+                            if attempt < max_modal_attempts:
+                                self.log(f"   ⚠️ [RETRY Modal] Campos bloqueados (cinzas) na tentativa {attempt}/{max_modal_attempts}! Fechando e aguardando recarga...")
+                                close_btn = modal.locator("button.close, .modal-header .close, button:has-text('Cancelar'), button:has-text('Close'), .close").first
+                                if await close_btn.is_visible(timeout=2000):
+                                    await close_btn.click(force=True)
+                                else:
+                                    await page.keyboard.press("Escape")
+                                
+                                await asyncio.sleep(1.8)  # Tempo para scripts do site carregarem no cache
+                                continue
                             else:
-                                await page.keyboard.press("Escape")
-                            
-                            await asyncio.sleep(1.5)
-                            
-                            # Reabre a modal clicando em Criar uma nota novamente
-                            create_note_btn = page.locator("button:has-text('CRIAR UMA NOTA'), button:has-text('Criar uma nota')").first
-                            if await create_note_btn.is_visible(timeout=2000):
-                                await create_note_btn.click(force=True)
-                                await asyncio.sleep(2)
-                                modal = page.locator(".modal-content, div.modal-dialog").first
-                                proc_select = modal.locator("ng-select").first
+                                self.log("   ⚠️ Limite de 3 tentativas atingido! Tentando forçar o preenchimento...")
 
-                    # Realiza a seleção do Processo
+                    modal_ready = True
+                    self.log(f"   🟢 [OK] Modal e campos habilitados (Tentativa {attempt}/{max_modal_attempts})!")
+                except Exception as e_proc_check:
+                    self.log(f"   ⚠️ Aviso na checagem do Processo: {e_proc_check}")
+
+                # 3. Seleção do Processo (FORA do except - sempre executa)
+                self.log("📝 [3/6] Preenchendo Processo, Tipo de Nota e Assunto...")
+                try:
+                    proc_select = modal.locator("ng-select").first
+                    if not await proc_select.is_visible(timeout=2000):
+                        proc_select = page.locator("ng-select").first
+
                     await proc_select.scroll_into_view_if_needed()
                     await proc_select.click(force=True)
                     await asyncio.sleep(0.5)
@@ -427,7 +440,7 @@ class CHEPBotEngine:
                         await inp.fill("Logistics")
                     else:
                         await page.keyboard.type("Logistics", delay=80)
-                    
+
                     await asyncio.sleep(0.8)
 
                     opt_log = page.locator(".ng-dropdown-panel .ng-option, ng-dropdown-panel .ng-option").filter(has_text="Logistics").first
@@ -523,15 +536,15 @@ class CHEPBotEngine:
                 await ql_editor.wait_for(state="visible", timeout=4000)
                 await ql_editor.click(force=True)
                 
-                # Formata respeitando quebras duplas de linha (\n\n) injetando um <p><br></p> visível
-                paragraphs = description.replace('\r\n', '\n').split('\n\n')
+                # Formata respeitando quebras de linha (\n) e linhas em branco (\n\n) injetando tags <p> e <p><br></p>
+                lines = description.replace('\r\n', '\n').split('\n')
                 html_blocks = []
-                for idx, p in enumerate(paragraphs):
-                    p_clean = p.strip().replace('\n', ' ')
-                    if p_clean:
-                        html_blocks.append(f'<p>{p_clean}</p>')
-                        if idx < len(paragraphs) - 1:
-                            html_blocks.append('<p><br></p>')
+                for line in lines:
+                    line_clean = line.strip()
+                    if line_clean:
+                        html_blocks.append(f'<p>{line_clean}</p>')
+                    else:
+                        html_blocks.append('<p><br></p>')
                 
                 html_formatted = "".join(html_blocks)
                 await ql_editor.evaluate("(el, html) => { el.innerHTML = html; el.dispatchEvent(new Event('input', { bubbles: true })); }", html_formatted)
@@ -703,15 +716,15 @@ class CHEPBotEngine:
             await editor.click(force=True)
             await asyncio.sleep(0.5)
 
-            # Preenche respeitando linha em branco dupla (<p><br></p>) entre os blocos de texto
-            paragraphs = reply_message.replace('\r\n', '\n').split('\n\n')
+            # Preenche respeitando quebras de linha (\n) e linhas em branco (\n\n)
+            lines = reply_message.replace('\r\n', '\n').split('\n')
             html_blocks = []
-            for idx, p in enumerate(paragraphs):
-                p_clean = p.strip().replace('\n', " ")
-                if p_clean:
-                    html_blocks.append(f'<p>{p_clean}</p>')
-                    if idx < len(paragraphs) - 1:
-                        html_blocks.append('<p><br></p>')
+            for line in lines:
+                line_clean = line.strip()
+                if line_clean:
+                    html_blocks.append(f'<p>{line_clean}</p>')
+                else:
+                    html_blocks.append('<p><br></p>')
             html_formatted = "".join(html_blocks)
 
             await editor.evaluate("""(el, html) => {
