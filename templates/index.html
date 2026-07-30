@@ -315,8 +315,8 @@
       <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <span class="ip-badge">📱 Celular: http://{{ local_ip }}:5000</span>
         <div class="conn-buttons">
-          <button class="btn-conn" onclick="connectChrome('cdp')">🔗 Conectar Chrome Aberto</button>
-          <button class="btn-conn green" onclick="connectChrome('new')">🚀 Abrir Novo Chrome</button>
+          <button class="btn-conn" onclick="connectChrome('cdp', event)">🔗 Conectar Chrome Aberto</button>
+          <button class="btn-conn green" onclick="connectChrome('new', event)">🚀 Abrir Novo Chrome</button>
         </div>
       </div>
     </header>
@@ -445,7 +445,7 @@
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 15px;">
-            <button type="button" class="btn-submit real-mode" style="background-color: var(--accent-green); color: white;" onclick="submitCustomForm()">⚡ CRIAR OCORRÊNCIA (Depende da sua Aprovação Visual)</button>
+            <button type="button" class="btn-submit real-mode" style="background-color: var(--accent-green); color: white;" onclick="submitCustomForm(event)">⚡ CRIAR OCORRÊNCIA (Depende da sua Aprovação Visual)</button>
           </div>
         </form>
       </div>
@@ -462,8 +462,8 @@
           <div style="margin-top: 10px; margin-bottom: 10px;">
             <label style="font-size: 12px; font-weight: 700; color: var(--accent-purple); display: block; margin-bottom: 4px;">Digitar Delivery para Verificar / Monitorar:</label>
             <div style="display: flex; gap: 8px;">
-              <input type="text" id="right_delivery" class="input-field" placeholder="Ex: 3788216684" style="flex: 1;" onkeydown="if(event.key==='Enter'){ event.preventDefault(); verifySingleDelivery(); }">
-              <button type="button" class="btn-conn" style="background: var(--accent-blue);" onclick="verifySingleDelivery()">🔍 Verificar</button>
+              <input type="text" id="right_delivery" class="input-field" placeholder="Ex: 3788216684" style="flex: 1;" onkeydown="if(event.key==='Enter'){ event.preventDefault(); verifySingleDelivery(event); }">
+              <button type="button" class="btn-conn" style="background: var(--accent-blue);" onclick="verifySingleDelivery(event)">🔍 Verificar</button>
             </div>
           </div>
 
@@ -535,7 +535,7 @@
       const type = opt.getAttribute('data-type');
       const text = opt.getAttribute('data-text');
       const isLinha = opt.getAttribute('data-linha') === 'true' || sel.value.includes('criacao_de_linha');
-      const isSemPaletes = sel.value === 'sem_paletes_no_d';
+      const isSemPaletes = sel.value === 'sem_paletes_no_d' || sel.value === 'sem_agendamento';
 
       if (type) document.getElementById('note_type').value = type;
       if (text) document.getElementById('location_text').value = text;
@@ -559,6 +559,9 @@
           title.innerText = '👤 Editar Nome do Responsável:';
           linhaFields.style.display = 'none';
           semPaletesFields.style.display = 'block';
+          if (sel.value === 'sem_agendamento' && document.getElementById('sr_nome').value === 'Leandro') {
+            document.getElementById('sr_nome').value = 'Andre';
+          }
         } else {
           title.innerText = '⚙️ Gerador de Criação de Linhas:';
           linhaFields.style.display = 'block';
@@ -593,6 +596,9 @@
       } else if (sel === 'sem_paletes_no_d') {
         const nome = document.getElementById('sr_nome').value.trim() || 'Leandro';
         document.getElementById('location_text').value = `Veiculo no D aguardando para carregar, onde o motorista foi informado pelo Sr. ${nome} que o D não tem paletes para carregar.\n\nFavor, verificar e como proceder.`;
+      } else if (sel === 'sem_agendamento') {
+        const nome = document.getElementById('sr_nome').value.trim() || 'Andre';
+        document.getElementById('location_text').value = `Veiculo no D aguardando para carregar, motorista foi informado pelo Sr. ${nome} que não tem agendamento para o dia de hoje, e que não será possível realizar o carregamento CHEP.\n\nFavor, verificar e como proceder.`;
       }
     }
 
@@ -612,13 +618,41 @@
       }
     }
 
-    function connectChrome(mode) {
+    function connectChrome(mode, evt) {
+      const btn = (evt && evt.target) ? evt.target : null;
+      const origText = btn ? btn.innerText : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳ Conectando...';
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       fetch('/api/connect_chrome', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: mode })
-      }).then(res => res.json()).then(data => {
-        alert(data.success ? `Conectado via ${data.mode}!` : `Erro ao conectar ${data.mode}`);
+        body: JSON.stringify({ mode: mode, profile: document.getElementById('profile').value }),
+        signal: controller.signal
+      })
+      .then(res => res.json())
+      .then(data => {
+        clearTimeout(timeoutId);
+        alert(data.success ? `Conectado via ${data.mode}!` : `Erro ao conectar ${data.mode}: ${data.error}`);
+      })
+      .catch(err => {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+          alert('⚠️ A requisição demorou mais de 5 segundos, mas a tentativa de conexão foi iniciada no servidor.');
+        } else {
+          alert(`⚠️ Falha ao conectar Chrome: ${err.message}`);
+        }
+      })
+      .finally(() => {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = origText;
+        }
       });
     }
 
@@ -642,6 +676,7 @@
         if (data.monitored_deliveries) {
           document.getElementById('daily_deliveries_box').value = data.monitored_deliveries.join('\n');
         }
+        if (data.statuses) renderStatuses(data.statuses);
         fetchLogs();
       });
     }
@@ -651,106 +686,186 @@
 
     fetchLogs();
 
-    setInterval(() => {
+    let globalStatuses = {};
+
+    function updateTimers() {
       const rawText = document.getElementById('daily_deliveries_box').value;
       const deliveries = rawText.split('\n').map(s => s.trim()).filter(Boolean);
 
-      let remainingSec = 1200;
-      if (globalLastCheckTime > 0 && globalServerTime > 0) {
-        const elapsed = (Date.now() / 1000) - globalLastCheckTime;
-        remainingSec = Math.max(0, 1200 - Math.floor(elapsed % 1200));
-      }
-
-      const m = Math.floor(remainingSec / 60).toString().padStart(2, '0');
-      const s = (remainingSec % 60).toString().padStart(2, '0');
-      const formatted = `${m}:${s}`;
-
       deliveries.forEach(d => {
         const el = document.getElementById(`timer_val_${d}`);
-        if (el) el.innerText = formatted;
+        if (!el) return;
+
+        const isTimerAtivo = el.getAttribute('data-timer-ativo') !== 'false';
+        const requerAtencao = el.getAttribute('data-requer-atencao') === 'true';
+
+        let nextMs = parseInt(el.getAttribute('data-next') || '0');
+        if (!nextMs && globalStatuses && globalStatuses[d]) {
+          nextMs = globalStatuses[d].proxima_verificacao || 0;
+        }
+
+        const now = Date.now();
+        const diff = nextMs - now;
+
+        let timerText = "";
+        if (requerAtencao) {
+          timerText = "Aguardando Confirmação (OK)";
+        } else if (diff > 0 && isTimerAtivo) {
+          const mins = Math.floor(diff / 60000);
+          const secs = Math.floor((diff % 60000) / 1000);
+          timerText = `${mins}:${secs.toString().padStart(2, '0')} min`;
+        } else {
+          timerText = "Verificando...";
+        }
+
+        el.innerText = timerText;
       });
+    }
 
-      const badge = document.getElementById('countdown_badge');
-      if (badge) {
-        badge.innerText = `⏱️ ${formatted}`;
+    setInterval(updateTimers, 1000);
+
+    function confirmOk(deliveryNum, evt) {
+      const btn = (evt && evt.target) ? evt.target : null;
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳...';
       }
-    }, 1000);
 
-    function confirmOk(deliveryNum) {
       fetch('/api/confirm_ok', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ delivery: deliveryNum })
-      }).then(res => res.json()).then(data => {
+      })
+      .then(res => res.json())
+      .then(data => {
         if (data.statuses) renderStatuses(data.statuses);
         fetchLogs();
+      })
+      .catch(err => {
+        alert('⚠️ Erro ao confirmar OK: ' + err.message);
+      })
+      .finally(() => {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = '✅ OK';
+        }
+      });
+    }
+
+    function verificarAgora() {
+      const btn = document.getElementById('btnVerificarAgora');
+      const origText = btn ? btn.innerText : '🔍 Verificar Agora (Monitoradas)';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳ Iniciando...';
+      }
+
+      fetch('/api/check_now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.statuses) renderStatuses(data.statuses);
+        fetchLogs();
+        if (data.message || data.status) alert(data.message || data.status);
+      })
+      .catch(err => {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+          alert('⚠️ A requisição demorou mais de 5 segundos, mas a verificação foi enviada ao servidor.');
+        } else {
+          alert('⚠️ Erro ao disparar verificação: ' + err.message);
+        }
+      })
+      .finally(() => {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = origText;
+        }
       });
     }
 
     function renderStatuses(statuses) {
+      if (statuses) globalStatuses = statuses;
       const rawText = document.getElementById('daily_deliveries_box').value;
       const deliveries = rawText.split('\n').map(s => s.trim()).filter(Boolean);
       const list = document.getElementById('statusList');
 
       if (deliveries.length === 0) {
-        list.innerHTML = `<div style="font-size:12px; color:#94a3b8;">Nenhuma delivery em monitoramento.</div>`;
+        list.innerHTML = `<div style="font-size:12px; color:#94a3b8; padding: 10px; text-align: center;">Nenhuma delivery em monitoramento contínuo.</div>`;
         return;
       }
 
-      let remainingSec = 1200;
-      if (globalLastCheckTime > 0 && globalServerTime > 0) {
-        const elapsed = (Date.now() / 1000) - globalLastCheckTime;
-        remainingSec = Math.max(0, 1200 - Math.floor(elapsed % 1200));
-      }
-      const m = Math.floor(remainingSec / 60).toString().padStart(2, '0');
-      const s = (remainingSec % 60).toString().padStart(2, '0');
-      const timerStr = `${m}:${s}`;
-
       list.innerHTML = deliveries.map(d => {
-        const stObj = statuses ? statuses[d] : null;
-        const respFound = (stObj && typeof stObj === 'object') ? !!stObj.resposta_encontrada : false;
-        const respConf = (stObj && typeof stObj === 'object') ? !!stObj.resposta_confirmada : false;
-        const count = (stObj && typeof stObj === 'object' && stObj.count !== undefined) ? stObj.count : 0;
-        const lastSentStr = (stObj && typeof stObj === 'object' && stObj.last_sent) ? stObj.last_sent : '';
+        const stObj = (statuses && typeof statuses[d] === 'object') ? statuses[d] : null;
+        
+        const profileStr = stObj ? (stObj.perfil || stObj.profile || 'BR__LH_PURM2') : 'BR__LH_PURM2';
+        const ciclos = stObj ? (stObj.ciclos_concluidos !== undefined ? stObj.ciclos_concluidos : (stObj.count || 0)) : 0;
+        const maxCiclos = stObj ? (stObj.max_ciclos || 4) : 4;
+        const timerAtivo = stObj ? (stObj.timer_ativo !== false) : true;
+        const requerAtencao = stObj ? (!!stObj.requer_atencao || !!stObj.resposta_encontrada) : false;
+        
+        let statusRaw = stObj ? (stObj.status || 'Aguardando resposta da CHEP') : 'Aguardando resposta da CHEP';
+        let statusText = (statusRaw === 'aguardando_resposta' || !statusRaw) ? 'Aguardando resposta da CHEP' : statusRaw;
 
-        // Cenário 1: Delivery sem resposta da CHEP (Amarelo - Sem timer, sem contador, sem botão OK)
-        if (!respFound) {
-          return `
-            <div class="status-badge" style="background: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.4); display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 8px; margin-bottom: 6px;">
-              <span style="color: #eab308; font-weight: 700;">🟡 #${d} - Aguardando resposta da CHEP (Sem timer)</span>
-              <button type="button" onclick="removeDelivery('${d}')" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); color: #ef4444; border-radius: 6px; padding: 2px 8px; font-weight: 700; cursor: pointer;" title="Parar e remover monitoramento">❌</button>
-            </div>
-          `;
-        }
-
-        // Cenário 2 & 3: Delivery com Resposta Encontrada (Exibe timer e contador 0/4 -> 1/4 -> ...)
-        const countBadge = `<span style="background: rgba(255,255,255,0.15); border-radius: 4px; padding: 1px 6px; margin-left: 4px; font-weight: 800; font-size: 11px;">${count}/4</span>`;
-        let statusHtml = '';
-        let containerStyle = '';
-        let okBtnHtml = '';
-
-        if (!respConf) {
-          // Estado 2: Resposta Encontrada da CHEP (Roxo 🟣 - Exibe Botão OK + Destaque Roxo)
-          containerStyle = 'background: linear-gradient(135deg, rgba(147, 51, 234, 0.3), rgba(126, 34, 206, 0.4)); border: 1px solid rgba(192, 132, 252, 0.8); box-shadow: 0 0 12px rgba(168, 85, 247, 0.4);';
-          statusHtml = `<span style="color: #e9d5ff; font-weight: 800;">🟣 #${d} ${countBadge} - RESPOSTA ENCONTRADA PELA CHEP! ⏱️ <strong id="timer_val_${d}">${timerStr}</strong></span>`;
-          okBtnHtml = `<button type="button" onclick="confirmOk('${d}')" style="background: #22c55e; color: white; border: none; border-radius: 6px; padding: 4px 10px; font-weight: 800; font-size: 12px; cursor: pointer; margin-right: 6px;" title="Confirmar que já tratou essa resposta no Service Desk">✅ OK</button>`;
-        } else {
-          // Estado 3: Resposta Confirmada (OK Clicado) - Monitoramento contínuo normalmente
-          if (count >= 3) {
-            containerStyle = 'background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.35)); border: 1px solid rgba(245, 158, 11, 0.7);';
-            statusHtml = `<span style="color: #fbbf24; font-weight: 800;">🔔 #${d} ${countBadge} - PRONTA PARA NOVA VERIFICAÇÃO (~60 min) ⏱️ <strong id="timer_val_${d}">${timerStr}</strong></span>`;
-          } else {
-            containerStyle = 'background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255,255,255,0.1);';
-            statusHtml = `<span>🟡 #${d} ${countBadge} - ⏱️ Próximo em: <strong id="timer_val_${d}">${timerStr}</strong> ${lastSentStr ? '('+lastSentStr+')' : ''}</span>`;
+        let nextMs = 0;
+        if (stObj) {
+          const pv = stObj.proxima_verificacao;
+          if (typeof pv === 'number' && pv > 1000000000000) {
+            nextMs = pv;
+          } else if (typeof pv === 'number' && pv > 0) {
+            nextMs = pv * 1000;
+          } else if (stObj.proxima_verificacao_ts) {
+            nextMs = parseFloat(stObj.proxima_verificacao_ts) * 1000;
           }
         }
+        if (!nextMs || isNaN(nextMs) || nextMs <= 0) {
+          nextMs = Date.now() + 20 * 60 * 1000;
+        }
+
+        const now = Date.now();
+        const diff = nextMs - now;
+
+        let initialTimerStr = "Verificando...";
+        if (requerAtencao) {
+          initialTimerStr = "Aguardando Confirmação (OK)";
+        } else if (diff > 0 && timerAtivo) {
+          const mins = Math.floor(diff / 60000);
+          const secs = Math.floor((diff % 60000) / 1000);
+          initialTimerStr = `${mins}:${secs.toString().padStart(2, '0')} min`;
+        }
+
+        const statusDot = requerAtencao ? "🟣" : "🟡";
+        const containerBg = requerAtencao 
+          ? "background: linear-gradient(135deg, rgba(147, 51, 234, 0.25), rgba(126, 34, 206, 0.35)); border: 1px solid rgba(192, 132, 252, 0.8); box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);"
+          : "background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.08);";
+
+        const actionBtnHtml = requerAtencao
+          ? `<button type="button" onclick="confirmOk('${d}', event)" style="background: #22c55e; color: white; border: none; border-radius: 6px; padding: 4px 10px; font-weight: 800; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Confirmar e reiniciar timer">✅ OK</button>`
+          : `<button type="button" onclick="removeDelivery('${d}')" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); color: #ef4444; border-radius: 6px; padding: 4px 8px; font-weight: 700; cursor: pointer;" title="Parar e remover monitoramento">❌</button>`;
 
         return `
-          <div class="status-badge" style="${containerStyle} display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 8px; margin-bottom: 6px;">
-            <div>${statusHtml}</div>
-            <div style="display: flex; align-items: center;">
-              ${okBtnHtml}
-              <button type="button" onclick="removeDelivery('${d}')" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); color: #ef4444; border-radius: 6px; padding: 2px 8px; font-weight: 700; cursor: pointer;" title="Parar e remover monitoramento">❌</button>
+          <div class="status-card-item" style="${containerBg} display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; font-size: 13px;">
+            <!-- Lado Esquerdo: Badge Perfil + Ponto + Delivery -->
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 170px;">
+              <span style="background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(129, 140, 248, 0.5); color: #818cf8; font-weight: 700; font-size: 11px; padding: 2px 6px; border-radius: 4px;">[${profileStr}]</span>
+              <span>${statusDot}</span>
+              <strong style="color: #f8fafc; font-size: 13px;">#${d}</strong>
+            </div>
+
+            <!-- Centro: Badge Ciclo + Texto Status -->
+            <div style="display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center; text-align: center;">
+              <span style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); color: #e2e8f0; font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 4px; white-space: nowrap;">${ciclos}/${maxCiclos}</span>
+              <span style="color: ${requerAtencao ? '#e9d5ff' : '#f8fafc'}; font-weight: ${requerAtencao ? '800' : '500'}; flex: 1;">${statusText}</span>
+            </div>
+
+            <!-- Lado Direito: Timer Badge + Botão Ação -->
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 210px; justify-content: flex-end;">
+              <span style="background: rgba(30, 41, 59, 0.9); border: 1px solid rgba(255,255,255,0.12); padding: 4px 10px; border-radius: 6px; font-weight: 700; color: ${requerAtencao ? '#e9d5ff' : '#38bdf8'}; font-size: 12px; display: flex; align-items: center; gap: 4px; white-space: nowrap;">
+                ⏱️ <span id="timer_val_${d}" data-next="${nextMs}" data-timer-ativo="${timerAtivo}" data-requer-atencao="${requerAtencao}">${initialTimerStr}</span>
+              </span>
+              ${actionBtnHtml}
             </div>
           </div>
         `;
@@ -799,16 +914,13 @@
         if (data.server_time) globalServerTime = data.server_time;
         if (data.statuses) renderStatuses(data.statuses);
         if (isManual) {
-          if (data.answered_deliveries && data.answered_deliveries.length > 0) {
-            alert(`🚨 RESPOSTA DETECTADA!\nPerfil: ${profile}\nDeliveries respondidas (Roxo):\n${data.answered_deliveries.join(', ')}`);
-          } else {
-            alert(`🟢 Perfil: ${profile}\nNenhuma nova resposta roxa encontrada na lista monitorada.`);
-          }
+          alert(`✅ Verificação de Respostas iniciada em background para o perfil ${profile}! Acompanhe os logs.`);
         }
       });
     }
 
-    function verifySingleDelivery() {
+    function verifySingleDelivery(evt) {
+      const btn = (evt && evt.target) ? evt.target : null;
       const rightInput = document.getElementById('right_delivery');
       const deliveryVal = rightInput.value.trim();
       const profile = document.getElementById('profile').value;
@@ -820,25 +932,53 @@
         return;
       }
 
+      const origText = btn ? btn.innerText : '🔍 Verificar';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳ Processando...';
+      }
+
       rightInput.value = '';
       rightInput.focus();
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
       fetch('/api/check_replies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deliveries: [deliveryVal], profile: profile, add_to_monitor: shouldMonitor })
-      }).then(res => res.json()).then(data => {
+        body: JSON.stringify({ deliveries: [deliveryVal], profile: profile, add_to_monitor: shouldMonitor }),
+        signal: controller.signal
+      })
+      .then(res => res.json())
+      .then(data => {
+        clearTimeout(timeoutId);
         if (data.monitored_deliveries) {
           document.getElementById('daily_deliveries_box').value = data.monitored_deliveries.join('\n');
         }
         if (data.statuses) renderStatuses(data.statuses);
         fetchLogs();
+      })
+      .catch(err => {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+          alert('⚠️ A requisição demorou mais de 5 segundos, mas o comando de verificação foi enviado.');
+        } else {
+          alert(`⚠️ Erro ao verificar delivery: ${err.message}`);
+        }
+      })
+      .finally(() => {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = origText;
+        }
       });
     }
 
     function toggleAutoMonitor() { /* monitoramento global server-side sempre ativo */ }
 
-    function submitCustomForm() {
+    function submitCustomForm(evt) {
+      const btn = (evt && evt.target) ? evt.target : document.querySelector('.btn-submit');
       const form = document.getElementById('occForm');
       const deliveryInput = document.getElementById('delivery');
       const deliveryVal = deliveryInput.value.trim();
@@ -847,6 +987,12 @@
         alert('Por favor, informe o número da Delivery no Campo 1!');
         deliveryInput.focus();
         return;
+      }
+
+      const origText = btn ? btn.innerText : '⚡ CRIAR OCORRÊNCIA';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⚡ CRIANDO OCORRÊNCIA...';
       }
 
       const formData = new FormData(form);
@@ -860,13 +1006,34 @@
       deliveryInput.value = '';
       deliveryInput.focus();
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       fetch('/api/execute', {
         method: 'POST',
-        body: formData
-      }).then(res => res.json()).then(data => {
-        alert(data.message);
+        body: formData,
+        signal: controller.signal
+      })
+      .then(res => res.json())
+      .then(data => {
+        clearTimeout(timeoutId);
+        if (data.message) alert(data.message);
         fetchLogs();
         clearPhoto();
+      })
+      .catch(err => {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+          alert('⚠️ Ocorrência enviada! O processamento em segundo plano está em andamento.');
+        } else {
+          alert(`⚠️ Erro ao iniciar ocorrência: ${err.message}`);
+        }
+      })
+      .finally(() => {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = origText;
+        }
       });
     }
 

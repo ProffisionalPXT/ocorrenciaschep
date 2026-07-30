@@ -662,9 +662,22 @@ class CHEPBotEngine:
         try:
             self.log(f"\n🌐 [2º Sistema] Abrindo Service Desk (contact.cmaweb.chep.com)...")
             
-            if "contact.cmaweb.chep.com" not in contact_page.url:
-                await contact_page.goto("https://contact.cmaweb.chep.com/workspaces/CHEP/dashboard", wait_until="domcontentloaded")
-                await asyncio.sleep(2)
+            try:
+                if "contact.cmaweb.chep.com" not in contact_page.url:
+                    await contact_page.goto("https://contact.cmaweb.chep.com/workspaces/CHEP/dashboard", wait_until="domcontentloaded", timeout=8000)
+            except Exception as e:
+                self.log(f"⚠️ Erro ao acessar Service Desk (aba morta): {e}. Recriando contexto...")
+                clean_profile_id = "PURM3" if "PURM3" in profile_name.upper() else "PURM2"
+                if clean_profile_id in self.contexts and self.contexts[clean_profile_id]:
+                    try: await self.contexts[clean_profile_id].close()
+                    except: pass
+                    self.contexts[clean_profile_id] = None
+                page_key = f"{clean_profile_id}_service_desk"
+                if page_key in self.pages: del self.pages[page_key]
+                contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk")
+                await contact_page.goto("https://contact.cmaweb.chep.com/workspaces/CHEP/dashboard", wait_until="domcontentloaded", timeout=15000)
+            
+            await asyncio.sleep(2)
 
             is_logged = await self.ensure_user_is_logged_in(contact_page, profile_name)
             if not is_logged:
@@ -815,9 +828,22 @@ class CHEPBotEngine:
             self.log(f"🔍 [Monitor] Verificando {len(daily_deliveries)} deliveries no Service Desk ({profile_name})...")
             
             target_url = "https://contact.cmaweb.chep.com/workspaces/CHEP/requests?page=0&step=10"
-            if "contact.cmaweb.chep.com" not in contact_page.url:
-                await contact_page.goto(target_url, wait_until="domcontentloaded")
-                await asyncio.sleep(2)
+            try:
+                if "contact.cmaweb.chep.com" not in contact_page.url:
+                    await contact_page.goto(target_url, wait_until="domcontentloaded", timeout=8000)
+            except Exception as e:
+                self.log(f"⚠️ Erro ao acessar Service Desk (aba morta): {e}. Recriando contexto...")
+                clean_profile_id = "PURM3" if "PURM3" in profile_name.upper() else "PURM2"
+                if clean_profile_id in self.contexts and self.contexts[clean_profile_id]:
+                    try: await self.contexts[clean_profile_id].close()
+                    except: pass
+                    self.contexts[clean_profile_id] = None
+                page_key = f"{clean_profile_id}_service_desk"
+                if page_key in self.pages: del self.pages[page_key]
+                contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk")
+                await contact_page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
+                
+            await asyncio.sleep(2)
 
             is_logged = await self.ensure_user_is_logged_in(contact_page, profile_name)
             if not is_logged:
