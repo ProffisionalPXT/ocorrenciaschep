@@ -5,8 +5,26 @@ import time
 import asyncio
 import threading
 import socket
+import ctypes
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from bot_engine import CHEPBotEngine
+
+def flash_taskbar():
+    try:
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            # FLASHW_TRAY = 2, FLASHW_TIMERNOFG = 12
+            class FLASHWINFO(ctypes.Structure):
+                _fields_ = [("cbSize", ctypes.c_uint), ("hwnd", ctypes.c_void_p), ("dwFlags", ctypes.c_uint), ("uCount", ctypes.c_uint), ("dwTimeout", ctypes.c_uint)]
+            info = FLASHWINFO()
+            info.cbSize = ctypes.sizeof(info)
+            info.hwnd = hwnd
+            info.dwFlags = 2 | 12
+            info.uCount = 4
+            info.dwTimeout = 0
+            ctypes.windll.user32.FlashWindowEx(ctypes.pointer(info))
+    except Exception:
+        pass
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -249,6 +267,7 @@ if isinstance(saved_time_obj, dict) and "last_check_time" in saved_time_obj:
 else:
     last_check_time = time.time()
     save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
+browser_verification_lock = threading.Lock()
 
 def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="manual"):
     """
@@ -258,103 +277,134 @@ def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="ma
     if not deliveries_to_check:
         return []
 
-    if mode == "auto":
-        append_log("[MONITOR] Executando monitoramento automático...")
-        for d in deliveries_to_check:
-            append_log(f"[MONITOR] Verificando delivery {d}...")
-    elif mode == "initial":
-        append_log("[MONITOR] Executando verificação inicial...")
-        for d in deliveries_to_check:
-            append_log(f"[MONITOR] Verificando delivery {d}...")
+    # Garante fila estritamente sequencial (evita múltiplas abas em paralelo)
+    with browser_verification_lock:
 
-    try:
-        fut = asyncio.run_coroutine_threadsafe(
-            engine.check_pending_carrier_replies(deliveries_to_check, profile_name=profile),
-            async_loop
-        )
-        answered = fut.result(timeout=180) or []
-        answered_dict = {item[0]: item for item in answered}
+        if mode == "auto":
+            append_log("[MONITOR] Executando monitoramento automático...")
+            flash_taskbar()
+            for d in deliveries_to_check:
+                append_log(f"[MONITOR] Verificando delivery {d}...")
+        elif mode == "initial":
+            append_log("[MONITOR] Executando verificação inicial...")
+            flash_taskbar()
+            for d in deliveries_to_check:
+                append_log(f"[MONITOR] Verificando delivery {d}...")
+    
+        try:
+            # Agrupa as deliveries pelo perfil em que foram cadastradas
+            grouped_deliveries = {}
+            for deliv in deliveries_to_check:
+                st_data = delivery_statuses.get(deliv, {})
+                # Respeita o perfil salvo; fallback para o global se não houver
+                d_profile = st_data.get("perfil", profile)
+                if d_profile not in grouped_deliveries:
+                    grouped_deliveries[d_profile] = []
+                grouped_deliveries[d_profile].append(deliv)
 
-        for deliv in deliveries_to_check:
-            st_data = delivery_statuses.get(deliv, {})
-            cur_found = st_data.get("resposta_encontrada", False)
-            cur_confirmed = st_data.get("resposta_confirmada", False)
-            cur_count = st_data.get("count", 0)
+            answered = []
+            for p_name, p_deliveries in grouped_deliveries.items():
+                for d_num in p_deliveries:
+                    append_log(f"[LOG] Alternando para o perfil {p_name} para consultar a delivery {d_num}.")
+                
+                fut = asyncio.run_coroutine_threadsafe(
+                    engine.check_pending_carrier_replies(p_deliveries, profile_name=p_name),
+                    async_loop
+                )
+                # timeout proporcional à qtd de notas (aprox 20s por nota)
+                ans = fut.result(timeout=120 + (len(p_deliveries) * 20)) or []
+                answered.extend(ans)
 
-            is_chep_reply = False
-            last_time = cur_data = st_data.get("last_sent", None)
-            if deliv in answered_dict:
-                res_item = answered_dict[deliv]
-                is_purple = res_item[1]  # True = resposta encontrada no Service Desk
-                last_time = res_item[3] if len(res_item) > 3 else None
-                if is_purple:
-                    is_chep_reply = True
-
-            if is_chep_reply or cur_found:
-                # Transição/Manutenção do Estado com Resposta Encontrada
-                if not cur_found:
-                    new_status = "resposta_encontrada"
-                    new_found = True
-                    new_confirmed = False
-                    new_count = 0
-                    append_log(f"🚨 [RESPOSTA ENCONTRADA] Delivery #{deliv} possui nova resposta da CHEP! Cronômetro e contador (0/4) iniciados.")
+            answered_dict = {item[0]: item for item in answered}
+    
+            for deliv in deliveries_to_check:
+                st_data = delivery_statuses.get(deliv, {})
+                cur_found = st_data.get("resposta_encontrada", False)
+                cur_confirmed = st_data.get("resposta_confirmada", False)
+                cur_count = st_data.get("count", 0)
+    
+                is_chep_reply = False
+                last_time = cur_data = st_data.get("last_sent", None)
+                if deliv in answered_dict:
+                    res_item = answered_dict[deliv]
+                    is_purple = res_item[1]  # True = resposta encontrada no Service Desk
+                    last_time = res_item[3] if len(res_item) > 3 else None
+                    if is_purple:
+                        is_chep_reply = True
+    
+                if is_chep_reply or cur_found:
+                    # Transição/Manutenção do Estado com Resposta Encontrada
+                    if not cur_found:
+                        new_status = "resposta_encontrada"
+                        new_found = True
+                        new_confirmed = False
+                        new_count = 0
+                        append_log(f"🚨 [RESPOSTA ENCONTRADA] Delivery #{deliv} possui nova resposta da CHEP! Cronômetro e contador (0/4) iniciados.")
+                    else:
+                        new_found = True
+                        new_confirmed = cur_confirmed
+                        new_count = cur_count + 1
+                        new_status = "resposta_confirmada" if cur_confirmed else "resposta_encontrada"
+    
+                    now_ts   = time.time()
+                    next_ts  = now_ts + 1200  # 20 min
+                    delivery_statuses[deliv] = {
+                        "status": new_status,
+                        "resposta_encontrada": True,
+                        "requer_atencao": True,
+                        "resposta_confirmada": new_confirmed,
+                        "count": new_count,
+                        "ciclos_concluidos": new_count,
+                        "max_ciclos": 4,
+                        "timer_ativo": False,
+                        "perfil": delivery_statuses.get(deliv, {}).get("perfil", active_profile),
+                        "proxima_verificacao_ts": next_ts,
+                        "proxima_verificacao": int(next_ts * 1000),
+                        "last_sent": last_time,
+                        "updated_at": now_ts,
+                        "created_at": st_data.get("created_at", now_ts)
+                    }
                 else:
-                    new_found = True
-                    new_confirmed = cur_confirmed
-                    new_count = cur_count + 1
-                    new_status = "resposta_confirmada" if cur_confirmed else "resposta_encontrada"
-
-                now_ts   = time.time()
-                next_ts  = now_ts + 1200  # 20 min
-                delivery_statuses[deliv] = {
-                    "status": new_status,
-                    "resposta_encontrada": True,
-                    "requer_atencao": True,
-                    "resposta_confirmada": new_confirmed,
-                    "count": new_count,
-                    "ciclos_concluidos": new_count,
-                    "max_ciclos": 4,
-                    "timer_ativo": False,
-                    "perfil": delivery_statuses.get(deliv, {}).get("perfil", active_profile),
-                    "proxima_verificacao_ts": next_ts,
-                    "proxima_verificacao": int(next_ts * 1000),
-                    "last_sent": last_time,
-                    "updated_at": now_ts,
-                    "created_at": st_data.get("created_at", now_ts)
-                }
-            else:
-                now_ts  = time.time()
-                next_ts = now_ts + 1200
-                delivery_statuses[deliv] = {
-                    "status": "aguardando_resposta",
-                    "resposta_encontrada": False,
-                    "requer_atencao": False,
-                    "resposta_confirmada": False,
-                    "count": 0,
-                    "ciclos_concluidos": 0,
-                    "max_ciclos": 4,
-                    "timer_ativo": True,
-                    "perfil": delivery_statuses.get(deliv, {}).get("perfil", active_profile),
-                    "proxima_verificacao_ts": next_ts,
-                    "proxima_verificacao": int(next_ts * 1000),
-                    "last_sent": None,
-                    "updated_at": now_ts,
-                    "created_at": st_data.get("created_at", now_ts)
-                }
-                append_log(f"Delivery #{deliv}: Aguardando resposta da CHEP.")
-
-        if mode in ("auto", "manual_agora"):
-            last_check_time = time.time()
-            save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
-            append_log("[MONITOR] Verificacao concluida. Proxima em 20 min.")
-
-        # Salva estado local (sem Render)
-        save_json(LOCAL_STATE_FILE, delivery_statuses)
-        save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
-        return answered
-    except Exception as e:
-        append_log(f"⚠️ Erro ao verificar respostas: {e}")
-        return []
+                    now_ts  = time.time()
+                    next_ts = now_ts + 1200
+                    
+                    new_count = cur_count
+                    if mode in ("auto", "manual_agora"):
+                        new_count += 1
+                        
+                    delivery_statuses[deliv] = {
+                        "status": "aguardando_resposta",
+                        "resposta_encontrada": False,
+                        "requer_atencao": False,
+                        "resposta_confirmada": False,
+                        "count": new_count,
+                        "ciclos_concluidos": new_count,
+                        "max_ciclos": 4,
+                        "timer_ativo": True,
+                        "perfil": delivery_statuses.get(deliv, {}).get("perfil", active_profile),
+                        "proxima_verificacao_ts": next_ts,
+                        "proxima_verificacao": int(next_ts * 1000),
+                        "last_sent": None,
+                        "updated_at": now_ts,
+                        "created_at": st_data.get("created_at", now_ts)
+                    }
+                    if new_count >= 4:
+                        append_log(f"Delivery #{deliv}: Aguardando resposta da CHEP. ({new_count}/4 ciclos concluídos - Fim do monitoramento).")
+                    else:
+                        append_log(f"Delivery #{deliv}: Aguardando resposta da CHEP. (Ciclo {new_count}/4 concluído)")
+    
+            if mode in ("auto", "manual_agora"):
+                last_check_time = time.time()
+                save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
+                append_log("[MONITOR] Verificacao concluida. Proxima em 20 min.")
+    
+            # Salva estado local (sem Render)
+            save_json(LOCAL_STATE_FILE, delivery_statuses)
+            save_json(DAILY_DELIVERIES_FILE, monitored_deliveries)
+            return answered
+        except Exception as e:
+            append_log(f"⚠️ Erro ao verificar respostas: {e}")
+            return []
 
 def add_delivery_to_monitoring(delivery: str, profile: str = "BR__LH_PURM2"):
     """
@@ -536,89 +586,108 @@ def connect_chrome():
 
 @app.route("/api/execute", methods=["POST"])
 def execute_occurrence():
-    delivery = request.form.get("delivery", "").strip()
-    profile = request.form.get("profile", "BR__LH_PURM2")
-    include_driver = request.form.get("include_driver") == "true"
-    driver_id = request.form.get("driver_id", "")
-    driver_text = request.form.get("driver_text", "").strip()
-    
-    include_location = request.form.get("include_location") == "true"
-    note_type = request.form.get("note_type", "SAP (Not App) LOCALIZAÇÃO DO VEÍCULO")
-    location_text = request.form.get("location_text", "").strip()
-    
-    include_contact = request.form.get("include_contact") == "true"
-    priority = request.form.get("priority", "HIGH")
-    test_mode = request.form.get("test_mode") == "true"
-    coleta_dia = request.form.get("coleta_dia") == "true"
+    try:
+        # --- Parâmetros da requisição ---
+        delivery = request.form.get("delivery", "").strip()
+        profile = request.form.get("profile", "BR__LH_PURM2")
+        include_driver = request.form.get("include_driver") == "true"
+        driver_text = request.form.get("driver_text", "").strip()
+        include_location = request.form.get("include_location") == "true"
+        note_type = request.form.get("note_type", "SAP (Not App) LOCALIZAÇÃO DO VEÍCULO")
+        location_text = request.form.get("location_text", "").strip()
+        include_contact = request.form.get("include_contact") == "true"
+        priority = request.form.get("priority", "HIGH")
+        coleta_dia = request.form.get("coleta_dia") == "true"
 
-    if not delivery:
-        return jsonify({"success": False, "error": "Número da delivery é obrigatório!"}), 400
+        if not delivery:
+            return jsonify({"success": False, "error": "Número da delivery é obrigatório!"}), 400
 
-    attachment_path = None
-    if "photo" in request.files:
-        file = request.files["photo"]
-        if file and file.filename:
-            file_path = os.path.join(UPLOADS_DIR, f"{int(time.time())}_{file.filename}")
-            file.save(file_path)
-            attachment_path = file_path
+        # --- Anexo opcional ---
+        attachment_path = None
+        if "photo" in request.files:
+            file = request.files["photo"]
+            if file and file.filename:
+                file_path = os.path.join(UPLOADS_DIR, f"{int(time.time())}_{file.filename}")
+                file.save(file_path)
+                attachment_path = file_path
 
-    # Se a caixa "COLETA DO DIA" estiver marcada, insere na lista de monitoramento contínuo
-    if coleta_dia:
-        add_delivery_to_monitoring(delivery, profile)
+        # --- Caso de coleta do dia ---
+        if coleta_dia:
+            add_delivery_to_monitoring(delivery, profile)
 
-    def run_tasks():
-        append_log(f"Perfil: {profile} | Delivery #{delivery}")
-        if include_driver and driver_text:
-            append_log("[1/3] Ocorrência de DADOS DO MOTORISTA...")
-            fut1 = asyncio.run_coroutine_threadsafe(
-                engine.create_occurrence(
-                    delivery_number=delivery,
-                    note_type="SAP (Not App) DADOS MOTORISTA / VEÍCULO",
-                    description=driver_text,
-                    priority=priority,
-                    profile_name=profile,
-                    attachment_path=None
-                ),
-                async_loop
-            )
-            res1 = fut1.result()
-            if not res1:
-                append_log(f"❌ Falha no envio da ocorrência do motorista.")
+        def run_tasks():
+            try:
+                # Garante que o navegador está aberto antes de qualquer ação
+                try:
+                    fut_browser = asyncio.run_coroutine_threadsafe(
+                        engine.get_browser_for_profile(profile), async_loop)
+                    fut_browser.result(timeout=30)
+                    append_log("[LOG] 🚀 Navegador aberto com sucesso. Navegando para o Service Desk...")
+                except Exception as e_browser:
+                    append_log(f"[ERRO] Falha ao abrir navegador para {profile}: {e_browser}")
+                    # Não aborta aqui; tenta prosseguir, pois o engine pode já estar conectado
 
-        if include_location and location_text:
-            append_log("[2/3] Ocorrência de STATUS / LOCALIZAÇÃO...")
-            fut2 = asyncio.run_coroutine_threadsafe(
-                engine.create_occurrence(
-                    delivery_number=delivery,
-                    note_type=note_type,
-                    description=location_text,
-                    priority=priority,
-                    profile_name=profile,
-                    attachment_path=attachment_path
-                ),
-                async_loop
-            )
-            res2 = fut2.result()
-            if not res2:
-                append_log(f"❌ Falha no envio da ocorrência de localização.")
+                append_log(f"Perfil: {profile} | Delivery #{delivery}")
 
-        if include_contact:
-            append_log("[3/3] Resposta no 2º site (contact.cmaweb.chep.com)...")
-            fut3 = asyncio.run_coroutine_threadsafe(
-                engine.respond_contact_site(
-                    delivery_number=delivery,
-                    message_text=location_text or driver_text,
-                    profile_name=profile,
-                    attachment_path=attachment_path
-                ),
-                async_loop
-            )
-            fut3.result()
+                if include_driver and driver_text:
+                    append_log("[1/3] Ocorrência de DADOS DO MOTORISTA...")
+                    fut1 = asyncio.run_coroutine_threadsafe(
+                        engine.create_occurrence(
+                            delivery_number=delivery,
+                            note_type="SAP (Not App) DADOS MOTORISTA / VEÍCULO",
+                            description=driver_text,
+                            priority=priority,
+                            profile_name=profile,
+                            attachment_path=None
+                        ),
+                        async_loop)
+                    res1 = fut1.result()
+                    if not res1:
+                        append_log("❌ Falha no envio da ocorrência do motorista.")
 
-        append_log(f"🚀 Processo concluído com sucesso para a Delivery #{delivery}!")
+                if include_location and location_text:
+                    append_log("[2/3] Ocorrência de STATUS / LOCALIZAÇÃO...")
+                    fut2 = asyncio.run_coroutine_threadsafe(
+                        engine.create_occurrence(
+                            delivery_number=delivery,
+                            note_type=note_type,
+                            description=location_text,
+                            priority=priority,
+                            profile_name=profile,
+                            attachment_path=attachment_path
+                        ),
+                        async_loop)
+                    res2 = fut2.result()
+                    if not res2:
+                        append_log("❌ Falha no envio da ocorrência de localização.")
+                    else:
+                        append_log("[LOG] 🚀 Nota COLETADO criada com sucesso.")
 
-    threading.Thread(target=run_tasks, daemon=True).start()
-    return jsonify({"success": True, "message": "Preenchimento iniciado em segundo plano!"})
+                if include_contact:
+                    append_log("[3/3] Resposta no 2º site (contact.cmaweb.chep.com)...")
+                    fut3 = asyncio.run_coroutine_threadsafe(
+                        engine.respond_contact_site(
+                            delivery_number=delivery,
+                            message_text=location_text or driver_text,
+                            profile_name=profile,
+                            attachment_path=attachment_path
+                        ),
+                        async_loop)
+                    fut3.result()
+
+                append_log(f"🚀 Processo concluído com sucesso para a Delivery #{delivery}!")
+            except Exception as e_task:
+                append_log(f"❌ [ERRO CRÍTICO] Falha ao processar ocorrência: {str(e_task)}")
+                import traceback
+                traceback.print_exc()
+
+        threading.Thread(target=run_tasks, daemon=True).start()
+        return jsonify({"success": True, "message": "Preenchimento iniciado em segundo plano!"})
+    except Exception as e_outer:
+        append_log(f"❌ [ERRO CRÍTICO] Falha ao processar ocorrência: {str(e_outer)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e_outer)}), 500
 
 @app.route("/api/approval_status", methods=["GET"])
 def approval_status():

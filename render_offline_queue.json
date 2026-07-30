@@ -1,0 +1,30 @@
+{
+  "3788251889": {
+    "delivery": "3788251889",
+    "status": "resposta_encontrada",
+    "resposta_encontrada": true,
+    "resposta_confirmada": false,
+    "contador": 0,
+    "ultima_verificacao": "2026-07-30T10:00:49",
+    "ultima_verificacao_ts": 1785416449.7783144,
+    "proxima_verificacao": "2026-07-30T10:20:49",
+    "proxima_verificacao_ts": 1785417649.7783144,
+    "monitorando": true,
+    "created_at": 1785410369.820369,
+    "last_sent": "29/07/2026 09:52"
+  },
+  "3788246098": {
+    "delivery": "3788246098",
+    "status": "aguardando_resposta",
+    "resposta_encontrada": false,
+    "resposta_confirmada": false,
+    "contador": 0,
+    "ultima_verificacao": "2026-07-30T10:00:49",
+    "ultima_verificacao_ts": 1785416449.778322,
+    "proxima_verificacao": "2026-07-30T10:20:49",
+    "proxima_verificacao_ts": 1785417649.778322,
+    "monitorando": true,
+    "created_at": 1785412286.557979,
+    "last_sent": null
+  }
+}

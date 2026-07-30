@@ -1,0 +1,18 @@
+{
+  "3788251880": {
+    "status": "aguardando_resposta",
+    "resposta_encontrada": false,
+    "requer_atencao": false,
+    "resposta_confirmada": false,
+    "count": 0,
+    "ciclos_concluidos": 0,
+    "max_ciclos": 4,
+    "timer_ativo": true,
+    "perfil": "BR__LH_PURM2",
+    "proxima_verificacao_ts": 1785437400.8686845,
+    "proxima_verificacao": 1785437400868,
+    "last_sent": null,
+    "updated_at": 1785436200.8686845,
+    "created_at": 1785428549.8164444
+  }
+}

@@ -85,66 +85,109 @@ class CHEPBotEngine:
         except Exception:
             return False
 
-    async def get_browser_for_profile(self, profile_name: str, headless: bool = None, site_type: str = "cma") -> Page:
-        """Navegador Chrome independente por perfil com 2 abas separadas (cma e service_desk)"""
+    async def get_browser_for_profile(self, profile_name: str, headless: bool = None, site_type: str = "cma", retry: int = 0) -> Page:
         if headless is None:
             headless = os.getenv("RENDER") is not None
 
         clean_profile_id = "PURM3" if "PURM3" in profile_name.upper() else "PURM2"
         page_key = f"{clean_profile_id}_{site_type}"
 
-        if page_key in self.pages and self.pages[page_key] and not self.pages[page_key].is_closed():
-            page = self.pages[page_key]
+        if page_key in self.pages:
             try:
-                await page.bring_to_front()
-                return page
+                # Teste rápido de liveness
+                await asyncio.wait_for(self.pages[page_key].evaluate("1+1"), timeout=3.0)
+                return self.pages[page_key]
             except Exception:
-                pass
+                del self.pages[page_key]
 
-        self.log(f"🚀 Abrindo aba '{site_type.upper()}' para a conta {clean_profile_id} (Headless: {headless})...")
+        try:
+            if not self.playwright:
+                self.playwright = await async_playwright().start()
+
+            user_data_dir = os.path.join(os.path.expanduser("~"), f".chep_bot_chrome_profile_{clean_profile_id.lower()}")
+            os.makedirs(user_data_dir, exist_ok=True)
+
+            viewport_cfg = {"width": 1920, "height": 1080} if headless else None
+            
+            args = [
+                "--disable-blink-features=AutomationControlled",
+                "--high-dpi-support=1",
+                "--force-device-scale-factor=1"
+            ]
+            if headless:
+                args.append("--window-size=1920,1080")
+            else:
+                args.append("--start-maximized")
+
+            if clean_profile_id in self.contexts and self.contexts[clean_profile_id]:
+                context = self.contexts[clean_profile_id]
+                try:
+                    if len(context.pages) > 0:
+                        await asyncio.wait_for(context.pages[0].evaluate("1+1"), timeout=5.0)
+                except Exception as e:
+                    self.log(f"⚠️ [TIMEOUT] Navegador existente travou ou não responde. Recriando contexto... ({e})")
+                    try: await context.close()
+                    except: pass
+                    self.contexts[clean_profile_id] = None
+                    context = None
+            else:
+                context = None
+                
+            if context is None:
+                # Força o fechamento apenas de instâncias do Chrome iniciadas pelo Playwright (evitando fechar o navegador pessoal do usuário)
+                try:
+                    import subprocess
+                    ps_cmd = "Get-Process chrome -ErrorAction SilentlyContinue | Where-Object {$_.Path -like '*ms-playwright*'} | Stop-Process -Force"
+                    subprocess.run(["powershell", "-Command", ps_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except:
+                    pass
+                context = await self.playwright.chromium.launch_persistent_context(
+                    user_data_dir=user_data_dir,
+                    headless=headless,
+                    viewport=viewport_cfg,
+                    no_viewport=not headless,
+                    args=args
+                )
+                self.contexts[clean_profile_id] = context
+
+            self.log("✅ [LOG] Navegador instanciado com sucesso.")
+            self.log(f"🌐 [LOG] Navegando para a URL do {site_type}...")
+
+            try:
+                if len(context.pages) == 1 and context.pages[0].url == "about:blank":
+                    page = context.pages[0]
+                else:
+                    page = await context.new_page()
+                
+                target_url = "https://contact.cmaweb.chep.com/workspaces/CHEP/requests?page=0&step=10" if "service_desk" in site_type else "https://cmaweb.chep.com/bluechat"
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "closed" in err_msg or "target page" in err_msg or "timeout" in err_msg:
+                    self.log(f"⚠️ Erro de contexto/aba detectado: {e}. Recriando contexto limpo do zero...")
+                    try: await context.close()
+                    except: pass
+                    self.contexts[clean_profile_id] = None
+                    if page_key in self.pages: del self.pages[page_key]
+                    
+                    if retry >= 2:
+                        self.log(f"[ERRO] Falha ao conectar ao {profile_name} após 3 tentativas. Cancelando ciclo.")
+                        raise Exception(f"Falha ao conectar ao {profile_name} após 3 tentativas.")
+                    
+                    return await self.get_browser_for_profile(profile_name, headless, site_type, retry=retry + 1)
+                else:
+                    self.log(f"⚠️ Erro no carregamento da página {site_type}: {e}")
+                    raise e
+            
+            self.pages[page_key] = page
+            await self.ensure_user_is_logged_in(page, profile_name)
+            return page
+            
+        except Exception as e:
+            self.log(f"⚠️ ERRO FATAL AO CRIAR NAVEGADOR: {e}")
+            raise e
         
-        if not self.playwright:
-            self.playwright = await async_playwright().start()
-
-        user_data_dir = os.path.join(os.path.expanduser("~"), f".chep_bot_chrome_profile_{clean_profile_id.lower()}")
-        os.makedirs(user_data_dir, exist_ok=True)
-
-        viewport_cfg = {"width": 1920, "height": 1080} if headless else None
-        
-        args = [
-            "--disable-blink-features=AutomationControlled",
-            "--high-dpi-support=1",
-            "--force-device-scale-factor=1"
-        ]
-        if headless:
-            args.append("--window-size=1920,1080")
-        else:
-            args.append("--start-maximized")
-
-        if clean_profile_id in self.contexts and self.contexts[clean_profile_id]:
-            context = self.contexts[clean_profile_id]
-        else:
-            context = await self.playwright.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=headless,
-                viewport=viewport_cfg,
-                no_viewport=not headless,
-                args=args
-            )
-            self.contexts[clean_profile_id] = context
-
-        # Aba 1 = CMA Web (/bluechat) | Aba 2 = Service Desk (/workspaces/CHEP)
-        if site_type == "service_desk":
-            page = await context.new_page()
-            await page.goto("https://contact.cmaweb.chep.com/workspaces/CHEP/requests?page=0&step=10", wait_until="domcontentloaded")
-        else:
-            page = context.pages[0] if context.pages else await context.new_page()
-            await page.goto("https://cmaweb.chep.com/bluechat", wait_until="domcontentloaded")
-        
-        self.pages[page_key] = page
-        await self.ensure_user_is_logged_in(page, profile_name)
-        return page
-
     async def is_on_login_page(self, page: Page) -> bool:
         """Verifica rigorosamente se a página atual é a tela de login/autenticação"""
         url = page.url.lower()
@@ -220,9 +263,6 @@ class CHEPBotEngine:
         except Exception as e:
             self.log(f"⚠️ Aviso no processo de login: {e}")
 
-        except Exception as e:
-            self.log(f"⚠️ Aviso no processo de login: {e}")
-
     async def ensure_user_is_logged_in(self, page: Page, profile_name: str = "BR__LH_PURM2") -> bool:
         await asyncio.sleep(1.5)
         target_email, _ = self.get_credentials_for_profile(profile_name)
@@ -278,6 +318,7 @@ class CHEPBotEngine:
         attachment_path: Optional[str] = None
     ) -> bool:
         """Processo retornado para o fluxo original; preenchimento de nota com delay de carregamento e foco correto"""
+        self.is_creating_occurrence = True
         page = await self.get_browser_for_profile(profile_name)
 
         delivery_clean = delivery_number.strip()
@@ -300,8 +341,13 @@ class CHEPBotEngine:
                 await asyncio.sleep(2)
 
             # Apenas após Login e Gestão de Carga, inicia a pesquisa da Delivery
-            self.log(f"\n🔍 [Passo 2/2] Pesquisando a Delivery #{delivery_clean} na Gestão de Carga...")
+            self.log(f"\n🟢 [Passo 2/2] Pesquisando a Delivery #{delivery_clean} na Gestão de Carga...")
             
+            try:
+                await page.bring_to_front()
+            except:
+                pass
+
             deliv_input = page.locator('app-data-filter-multi-string-input').filter(has_text='Número de entrega').get_by_role('textbox')
             if not await deliv_input.is_visible(timeout=2000):
                 deliv_input = page.locator("app-data-filter-multi-string-input input, input[placeholder*='entrega']").last
@@ -327,7 +373,7 @@ class CHEPBotEngine:
 
             modal = page.locator(".modal-content, .modal-dialog, [role='dialog'], div:has-text('Criação de notas')").last
 
-            max_modal_attempts = 3
+            max_modal_attempts = 50
             modal_ready = False
 
             for attempt in range(1, max_modal_attempts + 1):
@@ -371,7 +417,7 @@ class CHEPBotEngine:
                         self.log("   ⚠️ Tentando acionar botão de criar nota...")
                         await page.keyboard.press("Enter")
                     
-                    await asyncio.sleep(2.5)
+                    await asyncio.sleep(1)
 
                 # 1. Aguarda visibilidade da Modal e captura print debug_06_modal_aberta
                 try:
@@ -400,11 +446,19 @@ class CHEPBotEngine:
                         # Testa interatividade do campo
                         await proc_select.scroll_into_view_if_needed()
                         await proc_select.click(force=True)
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0.8)
 
-                        has_panel = await page.locator(".ng-dropdown-panel").count() > 0
+                        # Garante que só verifica painéis drop-down que estão VISÍVEIS na tela
+                        panel_locator = page.locator(".ng-dropdown-panel")
+                        has_panel = False
+                        for i in range(await panel_locator.count()):
+                            if await panel_locator.nth(i).is_visible():
+                                has_panel = True
+                                break
+
                         val_check = await proc_select.inner_text()
                         
+                        # Se não abriu o dropdown E não está preenchido, está travado (cinza)
                         if not has_panel and "LATAM" not in val_check and "Logistics" not in val_check:
                             if attempt < max_modal_attempts:
                                 self.log(f"   ⚠️ [RETRY Modal] Campos bloqueados (cinzas) na tentativa {attempt}/{max_modal_attempts}! Fechando e aguardando recarga...")
@@ -414,13 +468,14 @@ class CHEPBotEngine:
                                 else:
                                     await page.keyboard.press("Escape")
                                 
-                                await asyncio.sleep(1.8)  # Tempo para scripts do site carregarem no cache
+                                await asyncio.sleep(1)  # Tela respira mais rápido
                                 continue
                             else:
-                                self.log("   ⚠️ Limite de 3 tentativas atingido! Tentando forçar o preenchimento...")
-
-                    modal_ready = True
-                    self.log(f"   🟢 [OK] Modal e campos habilitados (Tentativa {attempt}/{max_modal_attempts})!")
+                                self.log(f"   ⚠️ Limite de {max_modal_attempts} tentativas atingido! Tentando forçar o preenchimento...")
+                    else:
+                        modal_ready = True
+                        self.log(f"   🟢 [OK] Modal e campos habilitados (Tentativa {attempt}/{max_modal_attempts})!")
+                        break # Se está tudo certo, sai do loop imediatamente e vai para o passo 3
                 except Exception as e_proc_check:
                     self.log(f"   ⚠️ Aviso na checagem do Processo: {e_proc_check}")
 
@@ -460,15 +515,16 @@ class CHEPBotEngine:
                         await page.keyboard.type("LATAM - Brazil - Logistics", delay=50)
                         await asyncio.sleep(0.5)
                         await page.keyboard.press("Enter")
+                        
+                        await asyncio.sleep(0.8)
+                        val_text_retry = await proc_select.inner_text()
+                        if "Logistics" not in val_text_retry and "LATAM" not in val_text_retry:
+                            raise Exception("O chip do Processo não ficou ativo após a seleção.")
 
                     self.log("   🟢 [OK] Processo preenchido com sucesso!")
-                except Exception as e_proc:
-                    self.log(f"   ❌ Erro ao preencher Processo: {e_proc}")
+                    await page.wait_for_timeout(1000)
 
-                await page.wait_for_timeout(2000)  # Aguarda 2 segundos entre as seleções
-
-                # 3. SELEÇÃO DO TIPO DE NOTA*
-                try:
+                    # 3. SELEÇÃO DO TIPO DE NOTA*
                     self.log(f"   -> Preenchendo Tipo de Nota: '{note_type}'...")
                     
                     # O ng-select do Tipo de Nota é o segundo ng-select dentro da modal
@@ -497,12 +553,27 @@ class CHEPBotEngine:
                         await opt_note.click(force=True)
                     else:
                         await page.keyboard.press("Enter")
+                    
+                    await asyncio.sleep(0.8)
+                    note_val_text = await note_container.inner_text()
+                    if clean_search not in note_val_text:
+                        raise Exception("O chip do Tipo de Nota não ficou ativo.")
 
                     self.log(f"   🟢 [OK] Tipo de nota preenchido: '{note_type}'")
-                except Exception as e_note:
-                    self.log(f"   ⚠️ Aviso ao preencher Tipo de Nota: {e_note}")
 
-                await asyncio.sleep(1)
+                except Exception as e_proc_note:
+                    self.log(f"   ❌ Falha ao preencher campos básicos (Processo/Tipo): {e_proc_note}")
+                    if attempt < max_modal_attempts:
+                        self.log("   ⚠️ Fechando modal e tentando de novo...")
+                        close_btn = modal.locator("button.close, .modal-header .close, button:has-text('Cancelar'), button:has-text('Close'), .close").first
+                        if await close_btn.is_visible(timeout=2000):
+                            await close_btn.click(force=True)
+                        else:
+                            await page.keyboard.press("Escape")
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        self.log(f"   ⚠️ Limite de {max_modal_attempts} tentativas atingido! Tentando prosseguir...")
 
                 # 4. PREENCHIMENTO DO ASSUNTO (Subject)
                 try:
@@ -522,8 +593,8 @@ class CHEPBotEngine:
                 break
 
             # --- 2. Seleção da Prioridade ---
-            self.log("   -> Selecionando Prioridade: 'HIGH'...")
-            await self.selecionarPrioridade(page, priority_name='HIGH')
+            self.log(f"   -> Selecionando Prioridade: '{priority}'...")
+            await self.selecionarPrioridade(page, priority_name=priority.upper())
 
 
             # TEXTO DA MENSAGEM (.ql-editor)
@@ -622,22 +693,39 @@ class CHEPBotEngine:
                     await save_btn.click(force=True)
                     await asyncio.sleep(2.5)
                     self.log(f"✅ Ocorrência '{note_type}' criada com sucesso no CHEP!")
+                    self.is_creating_occurrence = False
                     return True
                 else:
                     self.log("⚠️ Botão 'CRIAR PEDIDO(S)' não encontrado na tela!")
+                    self.is_creating_occurrence = False
+                    return False
             else:
-                self.log("⛔ Ocorrência rejeitada ou cancelada. Fechando a modal.")
-                close_btn = modal.locator("button.close, .modal-header .close, button:has-text('Cancelar'), button:has-text('Close'), button[aria-label='Close'], span[aria-hidden='true']").first
-                if await close_btn.is_visible(timeout=2000):
-                    await close_btn.click(force=True)
-                else:
-                    await page.keyboard.press("Escape")
-                return False
+                self.log("🚫 Ocorrência rejeitada ou cancelada. Fechando a modal.")
+                try:
+                    # Tenta pegar qualquer botão de fechar VISÍVEL
+                    close_btns = page.locator("button.close, .modal-header .close, button:has-text('Cancelar'), button:has-text('Close'), button[aria-label='Close'], span[aria-hidden='true']")
+                    closed = False
+                    for i in range(await close_btns.count()):
+                        if await close_btns.nth(i).is_visible():
+                            await close_btns.nth(i).click(force=True)
+                            closed = True
+                            break
+                    
+                    if not closed:
+                        # Força múltiplos Escapes
+                        await page.mouse.click(10, 10) # Clica fora para focar o body
+                        await page.keyboard.press("Escape")
+                        await asyncio.sleep(0.5)
+                        await page.keyboard.press("Escape")
+                except Exception:
+                    pass
                 
-            return True
+                self.is_creating_occurrence = False
+                return False
 
         except Exception as e:
             self.log(f"❌ Erro ao preencher ocorrência: {e}")
+            self.is_creating_occurrence = False
             return False
 
     async def respond_contact_site(
@@ -647,7 +735,15 @@ class CHEPBotEngine:
         profile_name: str = "BR__LH_PURM2",
         attachment_path: str = None
     ) -> str:
-        return await self.create_contact_chep_response(delivery_number, message_text, profile_name, attachment_path=attachment_path)
+        self.is_creating_occurrence = True
+        try:
+            res = await self.create_contact_chep_response(delivery_number, message_text, profile_name, attachment_path=attachment_path)
+            self.is_creating_occurrence = False
+            return res
+        except Exception as e:
+            self.log(f"❌ Erro exato no Service Desk: {e}")
+            self.is_creating_occurrence = False
+            return "ERROR"
 
     async def create_contact_chep_response(
         self,
@@ -664,7 +760,7 @@ class CHEPBotEngine:
             
             try:
                 if "contact.cmaweb.chep.com" not in contact_page.url:
-                    await contact_page.goto("https://contact.cmaweb.chep.com/workspaces/CHEP/dashboard", wait_until="domcontentloaded", timeout=8000)
+                    await contact_page.goto("https://contact.cmaweb.chep.com/workspaces/CHEP/dashboard", wait_until="domcontentloaded", timeout=15000)
             except Exception as e:
                 self.log(f"⚠️ Erro ao acessar Service Desk (aba morta): {e}. Recriando contexto...")
                 clean_profile_id = "PURM3" if "PURM3" in profile_name.upper() else "PURM2"
@@ -720,13 +816,22 @@ class CHEPBotEngine:
             await table_rows.first.click()
             await asyncio.sleep(2)
 
-            # Localiza especificamente a caixa 'Add a message...' do painel direito
-            editor = contact_page.locator("div.ql-editor[contenteditable='true'], [placeholder*='Add a message'] .ql-editor, .ql-container .ql-editor").last
-            if not await editor.is_visible(timeout=2000):
+            # Localiza especificamente a caixa 'Add a message...' selecionando o primeiro que estiver visível
+            all_editors = contact_page.locator(".ql-editor, [contenteditable='true']")
+            editor = all_editors.last
+            try:
+                count = await all_editors.count()
+                for i in range(count):
+                    if await all_editors.nth(i).is_visible(timeout=1000):
+                        editor = all_editors.nth(i)
+                        break
+                await editor.wait_for(state="visible", timeout=5000)
+                await editor.click(force=True)
+            except Exception as e:
+                self.log(f"   ⚠️ Aviso ao localizar editor: {e}")
                 editor = contact_page.locator("[contenteditable='true']").last
-
-            await editor.wait_for(state="visible", timeout=6000)
-            await editor.click(force=True)
+                await editor.click(force=True)
+            
             await asyncio.sleep(0.5)
 
             # Preenche respeitando quebras de linha (\n) e linhas em branco (\n\n)
@@ -821,7 +926,7 @@ class CHEPBotEngine:
             return "ERROR"
 
     async def check_pending_carrier_replies(self, daily_deliveries: List[str], profile_name: str = "BR__LH_PURM2") -> List[str]:
-        contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk")
+        contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk_monitor")
 
         answered_deliveries = []
         try:
@@ -838,9 +943,9 @@ class CHEPBotEngine:
                     try: await self.contexts[clean_profile_id].close()
                     except: pass
                     self.contexts[clean_profile_id] = None
-                page_key = f"{clean_profile_id}_service_desk"
+                page_key = f"{clean_profile_id}_service_desk_monitor"
                 if page_key in self.pages: del self.pages[page_key]
-                contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk")
+                contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk_monitor")
                 await contact_page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
                 
             await asyncio.sleep(2)
@@ -861,6 +966,12 @@ class CHEPBotEngine:
                 await search_box.wait_for(state="visible", timeout=8000)
 
             self.log(f"🟢 Pronto para pesquisar sob a conta {profile_name}!")
+
+            # Traz o Chrome para a frente (faz piscar laranja na barra de tarefas se estiver em segundo plano)
+            try:
+                await contact_page.bring_to_front()
+            except:
+                pass
 
             for deliv in daily_deliveries:
                 deliv_clean = deliv.strip()
@@ -921,7 +1032,19 @@ class CHEPBotEngine:
                         pass
 
                 if has_purple_reply:
-                    self.log(f"🚨 [RESPONDIDA PELA CHEP] Delivery #{deliv_clean} possui status ROXO (Pending carrier reply)!")
+                    self.log(f"🟣 [RESPONDIDA PELA CHEP] Delivery #{deliv_clean} possui status ROXO (Pending carrier reply)!")
+                    
+                    import time
+                    import os
+                    print_name = f"print_roxo_{deliv_clean}_{int(time.time())}.png"
+                    print_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots", print_name)
+                    os.makedirs(os.path.dirname(print_path), exist_ok=True)
+                    try:
+                        await contact_page.screenshot(path=print_path)
+                        self.log(f"📸 Print da Resposta: <a href='/screenshots/{print_name}' target='_blank' style='color: #c084fc; text-decoration: underline; font-weight: bold;'>[Visualizar Resposta ROXA da CHEP]</a>")
+                    except Exception:
+                        pass
+                        
                     answered_deliveries.append((deliv_clean, True, False, last_msg_time))
                 elif overdue_notes:
                     last_time_str, mins = overdue_notes[0]

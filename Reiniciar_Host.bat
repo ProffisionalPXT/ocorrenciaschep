@@ -6,9 +6,8 @@ echo Reiniciando o CHEP Bot...
 echo ========================================================
 
 echo.
-echo 1. Fechando processos antigos em segundo plano...
+echo 1. Fechando servidor Python em segundo plano...
 taskkill /F /IM python.exe /T 2>nul
-taskkill /F /IM chrome.exe /T 2>nul
 timeout /t 2 /nobreak >nul
 
 echo.

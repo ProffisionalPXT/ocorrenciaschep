@@ -92,6 +92,14 @@
     "text": "Veiculo no D aguardando para carregar, onde o motorista foi informado pelo Sr. Leandro que o D não tem paletes para carregar.\n\nFavor, verificar e como proceder."
   },
   {
+    "id": "sem_agendamento",
+    "title": "SEM AGENDAMENTO (Falha no Processo de Agendamento)",
+    "note_type": "SAP (D1) SEM AGENDAMENTO (FALHA NO PROCESSO DE AGENDAMENTO)",
+    "is_sem_agendamento": true,
+    "default_nome": "Andre",
+    "text": "Veiculo no D aguardando para carregar, motorista foi informado pelo Sr. Andre que não tem agendamento para o dia de hoje, e que não será possível realizar o carregamento CHEP.\n\nFavor, verificar e como proceder."
+  },
+  {
     "id": "aguardando_descarregar_cs",
     "title": "AGUARDANDO DESCARREGAR NO CS (Com Previsão)",
     "note_type": "SAP (Not App) LOCALIZAÇÃO DO VEÍCULO",

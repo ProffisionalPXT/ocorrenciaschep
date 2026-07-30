@@ -6,9 +6,8 @@ echo Limpando Processos, Cache e Perfil do Chrome do Host...
 echo ========================================================
 
 echo.
-echo 1. Encerrando processos de background (Chrome e Python)...
+echo 1. Encerrando servidor Python...
 taskkill /F /IM python.exe /T 2>nul
-taskkill /F /IM chrome.exe /T 2>nul
 timeout /t 2 /nobreak >nul
 
 echo.
