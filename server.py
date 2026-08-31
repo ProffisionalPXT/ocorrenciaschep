@@ -268,6 +268,7 @@ else:
     last_check_time = time.time()
     save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
 browser_verification_lock = threading.Lock()
+cma_execution_lock = threading.Lock()
 
 def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="manual"):
     """
@@ -370,12 +371,15 @@ def run_verification_cycle(deliveries_to_check, profile="BR__LH_PURM2", mode="ma
                     
                     new_count = cur_count
                     if mode in ("auto", "manual_agora"):
-                        new_count += 1
-                        
+                        if new_count < 4:
+                            new_count += 1
+                    
+                    is_limit_reached = (new_count >= 4)
+                    
                     delivery_statuses[deliv] = {
-                        "status": "aguardando_resposta",
+                        "status": "limite_atingido" if is_limit_reached else "aguardando_resposta",
                         "resposta_encontrada": False,
-                        "requer_atencao": False,
+                        "requer_atencao": is_limit_reached,
                         "resposta_confirmada": False,
                         "count": new_count,
                         "ciclos_concluidos": new_count,
@@ -499,21 +503,31 @@ threading.Thread(target=_load_local_state, daemon=True).start()
 def global_monitoring_scheduler():
     """
     Scheduler em segundo plano no servidor Python.
-    A cada 20 minutos (1200 segundos), verifica todas as deliveries da fila de monitoramento.
+    A cada 10 segundos, verifica se alguma delivery atingiu seu timer individual (20 min).
     """
     global last_check_time
-    append_log("[MONITOR] Scheduler global de monitoramento automático iniciado (20 min).")
+    append_log("[MONITOR] Scheduler de monitoramento automático iniciado.")
     while True:
         time.sleep(10)
         now = time.time()
+        
+        with monitoring_lock:
+            to_check = []
+            for d in list(monitored_deliveries):
+                st = delivery_statuses.get(d, {})
+                ts = st.get("proxima_verificacao_ts", 0)
+                count = st.get("count", 0)
+                if now >= ts and count < 4:
+                    to_check.append(d)
+        
+        if to_check:
+            # Envia apenas as que o timer expirou para o ciclo de verificação
+            run_verification_cycle(to_check, profile=active_profile, mode="auto")
+        
+        # Opcional: Atualiza o global apenas por segurança, embora o individual seja o que importe agora
         if now - last_check_time >= 1200:
-            with monitoring_lock:
-                to_check = list(monitored_deliveries)
-            if to_check:
-                run_verification_cycle(to_check, profile=active_profile, mode="auto")
-            else:
-                last_check_time = now
-                save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
+            last_check_time = now
+            save_json(LAST_CHECK_FILE, {"last_check_time": last_check_time})
 
 threading.Thread(target=global_monitoring_scheduler, daemon=True).start()
 
@@ -534,6 +548,8 @@ def confirm_ok():
             delivery_statuses[delivery]["resposta_encontrada"] = False
             delivery_statuses[delivery]["requer_atencao"] = False
             delivery_statuses[delivery]["timer_ativo"] = True
+            delivery_statuses[delivery]["count"] = 0
+            delivery_statuses[delivery]["ciclos_concluidos"] = 0
             delivery_statuses[delivery]["proxima_verificacao_ts"] = next_ts
             delivery_statuses[delivery]["proxima_verificacao"] = int(next_ts * 1000)
             delivery_statuses[delivery]["status"] = "aguardando_resposta"
@@ -602,84 +618,93 @@ def execute_occurrence():
         if not delivery:
             return jsonify({"success": False, "error": "Número da delivery é obrigatório!"}), 400
 
-        # --- Anexo opcional ---
-        attachment_path = None
-        if "photo" in request.files:
-            file = request.files["photo"]
-            if file and file.filename:
-                file_path = os.path.join(UPLOADS_DIR, f"{int(time.time())}_{file.filename}")
-                file.save(file_path)
-                attachment_path = file_path
+        # --- Anexos opcionais (Múltiplas fotos) ---
+        attachment_paths = []
+        for key in request.files:
+            for file in request.files.getlist(key):
+                if file and file.filename:
+                    file_path = os.path.join(UPLOADS_DIR, f"{int(time.time())}_{file.filename}")
+                    file.save(file_path)
+                    attachment_paths.append(file_path)
+
+        attachment_path = attachment_paths if attachment_paths else None
 
         # --- Caso de coleta do dia ---
         if coleta_dia:
             add_delivery_to_monitoring(delivery, profile)
 
         def run_tasks():
-            try:
-                # Garante que o navegador está aberto antes de qualquer ação
+            with cma_execution_lock:
                 try:
-                    fut_browser = asyncio.run_coroutine_threadsafe(
-                        engine.get_browser_for_profile(profile), async_loop)
-                    fut_browser.result(timeout=30)
-                    append_log("[LOG] 🚀 Navegador aberto com sucesso. Navegando para o Service Desk...")
-                except Exception as e_browser:
-                    append_log(f"[ERRO] Falha ao abrir navegador para {profile}: {e_browser}")
-                    # Não aborta aqui; tenta prosseguir, pois o engine pode já estar conectado
+                    try:
+                        fut_browser = asyncio.run_coroutine_threadsafe(
+                            engine.get_browser_for_profile(profile), async_loop)
+                        fut_browser.result(timeout=30)
+                        append_log("[LOG] Navegador aberto com sucesso.")
+                    except Exception as e_browser:
+                        append_log(f"[ERRO] Falha ao abrir navegador para {profile}: {e_browser}")
 
-                append_log(f"Perfil: {profile} | Delivery #{delivery}")
+                    append_log(f"Perfil: {profile} | Delivery #{delivery}")
 
-                if include_driver and driver_text:
-                    append_log("[1/3] Ocorrência de DADOS DO MOTORISTA...")
-                    fut1 = asyncio.run_coroutine_threadsafe(
-                        engine.create_occurrence(
-                            delivery_number=delivery,
-                            note_type="SAP (Not App) DADOS MOTORISTA / VEÍCULO",
-                            description=driver_text,
-                            priority=priority,
-                            profile_name=profile,
-                            attachment_path=None
-                        ),
-                        async_loop)
-                    res1 = fut1.result()
-                    if not res1:
-                        append_log("❌ Falha no envio da ocorrência do motorista.")
+                    if include_driver and driver_text:
+                        append_log("[1/3] Ocorrência de DADOS DO MOTORISTA...")
+                        fut1 = asyncio.run_coroutine_threadsafe(
+                            engine.create_occurrence(
+                                delivery_number=delivery,
+                                note_type="SAP (Not App) DADOS MOTORISTA / VEÍCULO",
+                                description=driver_text,
+                                priority=priority,
+                                profile_name=profile,
+                                attachment_path=None
+                            ),
+                            async_loop)
+                        res1 = fut1.result()
+                        if res1 == "ZERO_ENTREGAS":
+                            append_log(f"❌ Cancelando fila para {delivery} (0 Entregas selecionadas).")
+                            remove_delivery_from_monitoring(delivery)
+                            return
+                        elif not res1:
+                            append_log("❌ Falha no envio da ocorrência do motorista. Interrompendo fila para esta delivery.")
+                            return
+                    if include_location and location_text:
+                        append_log("[2/3] Ocorrência de STATUS / LOCALIZAÇÃO...")
+                        fut2 = asyncio.run_coroutine_threadsafe(
+                            engine.create_occurrence(
+                                delivery_number=delivery,
+                                note_type=note_type,
+                                description=location_text,
+                                priority=priority,
+                                profile_name=profile,
+                                attachment_path=attachment_path
+                            ),
+                            async_loop)
+                        res2 = fut2.result()
+                        if res2 == "ZERO_ENTREGAS":
+                            append_log(f"❌ Cancelando fila para {delivery} (0 Entregas selecionadas).")
+                            remove_delivery_from_monitoring(delivery)
+                            return
+                        elif not res2:
+                            append_log("❌ Falha no envio da ocorrência de localização.")
+                        else:
+                            append_log(f"[LOG] 🚀 Nota '{note_type}' criada com sucesso.")
 
-                if include_location and location_text:
-                    append_log("[2/3] Ocorrência de STATUS / LOCALIZAÇÃO...")
-                    fut2 = asyncio.run_coroutine_threadsafe(
-                        engine.create_occurrence(
-                            delivery_number=delivery,
-                            note_type=note_type,
-                            description=location_text,
-                            priority=priority,
-                            profile_name=profile,
-                            attachment_path=attachment_path
-                        ),
-                        async_loop)
-                    res2 = fut2.result()
-                    if not res2:
-                        append_log("❌ Falha no envio da ocorrência de localização.")
-                    else:
-                        append_log("[LOG] 🚀 Nota COLETADO criada com sucesso.")
+                    if include_contact:
+                        append_log("[3/3] Resposta no 2º site (contact.cmaweb.chep.com)...")
+                        fut3 = asyncio.run_coroutine_threadsafe(
+                            engine.respond_contact_site(
+                                delivery_number=delivery,
+                                message_text=location_text or driver_text,
+                                profile_name=profile,
+                                attachment_path=attachment_path
+                            ),
+                            async_loop)
+                        fut3.result()
 
-                if include_contact:
-                    append_log("[3/3] Resposta no 2º site (contact.cmaweb.chep.com)...")
-                    fut3 = asyncio.run_coroutine_threadsafe(
-                        engine.respond_contact_site(
-                            delivery_number=delivery,
-                            message_text=location_text or driver_text,
-                            profile_name=profile,
-                            attachment_path=attachment_path
-                        ),
-                        async_loop)
-                    fut3.result()
-
-                append_log(f"🚀 Processo concluído com sucesso para a Delivery #{delivery}!")
-            except Exception as e_task:
-                append_log(f"❌ [ERRO CRÍTICO] Falha ao processar ocorrência: {str(e_task)}")
-                import traceback
-                traceback.print_exc()
+                    append_log(f"🚀 Processo concluído com sucesso para a Delivery #{delivery}!")
+                except Exception as e_task:
+                    append_log(f"❌ [ERRO CRÍTICO] Falha ao processar ocorrência: {str(e_task)}")
+                    import traceback
+                    traceback.print_exc()
 
         threading.Thread(target=run_tasks, daemon=True).start()
         return jsonify({"success": True, "message": "Preenchimento iniciado em segundo plano!"})
@@ -743,6 +768,15 @@ def check_replies():
             "server_time": time.time()
         })
 
+    if browser_verification_lock.locked():
+        return jsonify({
+            "success": False,
+            "message": "Uma verificação já está em andamento. Aguarde!",
+            "statuses": delivery_statuses,
+            "monitored_deliveries": monitored_deliveries,
+            "server_time": time.time()
+        })
+
     # Verificação assíncrona: dispara em thread e responde imediatamente
     def _run_check():
         run_verification_cycle(deliveries_to_check, profile=profile, mode="manual")
@@ -759,6 +793,10 @@ def check_replies():
 @app.route("/api/check_now", methods=["POST"])
 def check_now():
     """Dispara verificacao imediata de todas as deliveries monitoradas. Non-blocking."""
+    if browser_verification_lock.locked():
+        return jsonify({"success": False, "message": "Já existe uma verificação em andamento! Aguarde.",
+                        "statuses": delivery_statuses, "monitored_deliveries": monitored_deliveries})
+
     with monitoring_lock:
         target = list(monitored_deliveries)
     if not target:

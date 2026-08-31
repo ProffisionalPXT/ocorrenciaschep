@@ -436,10 +436,14 @@
             </label>
 
             <div style="margin-top: 10px;">
-              <label>📷 Anexar Foto NF / Comprovante (WhatsApp / Tirar Foto):</label>
-              <input type="file" id="photo" name="photo" accept="image/*,application/pdf">
-              <div style="margin-top: 5px;">
-                <button type="button" class="btn-remove-photo" onclick="clearPhoto()">❌ Remover Foto Anexada</button>
+              <label>📷 Anexar Foto 1 / NF / Comprovante:</label>
+              <input type="file" id="photo" name="photo" accept="image/*,application/pdf" multiple>
+
+              <label style="margin-top: 10px; display: block;">📷 Anexar Foto 2 (Opcional):</label>
+              <input type="file" id="photo2" name="photo2" accept="image/*,application/pdf">
+
+              <div style="margin-top: 8px;">
+                <button type="button" class="btn-remove-photo" onclick="clearPhoto()">❌ Remover Fotos Anexadas</button>
               </div>
             </div>
           </div>
@@ -604,6 +608,9 @@
 
     function clearPhoto() {
       document.getElementById('photo').value = '';
+      if (document.getElementById('photo2')) {
+        document.getElementById('photo2').value = '';
+      }
     }
 
     function toggleTestMode() {
@@ -707,8 +714,12 @@
         const now = Date.now();
         const diff = nextMs - now;
 
+        const statusStr = el.getAttribute('data-status') || '';
+
         let timerText = "";
-        if (requerAtencao) {
+        if (statusStr === 'limite_atingido') {
+          timerText = "Fim (Zerar)";
+        } else if (requerAtencao) {
           timerText = "Aguardando Confirmação (OK)";
         } else if (diff > 0 && isTimerAtivo) {
           const mins = Math.floor(diff / 60000);
@@ -828,7 +839,9 @@
         const diff = nextMs - now;
 
         let initialTimerStr = "Verificando...";
-        if (requerAtencao) {
+        if (statusRaw === 'limite_atingido') {
+          initialTimerStr = "Fim (Zerar)";
+        } else if (requerAtencao) {
           initialTimerStr = "Aguardando Confirmação (OK)";
         } else if (diff > 0 && timerAtivo) {
           const mins = Math.floor(diff / 60000);
@@ -863,7 +876,7 @@
             <!-- Lado Direito: Timer Badge + Botão Ação -->
             <div style="display: flex; align-items: center; gap: 8px; min-width: 210px; justify-content: flex-end;">
               <span style="background: rgba(30, 41, 59, 0.9); border: 1px solid rgba(255,255,255,0.12); padding: 4px 10px; border-radius: 6px; font-weight: 700; color: ${requerAtencao ? '#e9d5ff' : '#38bdf8'}; font-size: 12px; display: flex; align-items: center; gap: 4px; white-space: nowrap;">
-                ⏱️ <span id="timer_val_${d}" data-next="${nextMs}" data-timer-ativo="${timerAtivo}" data-requer-atencao="${requerAtencao}">${initialTimerStr}</span>
+                ⏱️ <span id="timer_val_${d}" data-next="${nextMs}" data-timer-ativo="${timerAtivo}" data-requer-atencao="${requerAtencao}" data-status="${statusRaw}">${initialTimerStr}</span>
               </span>
               ${actionBtnHtml}
             </div>

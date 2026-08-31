@@ -17,6 +17,7 @@ class CHEPBotEngine:
         self.contexts: Dict[str, BrowserContext] = {}
         self.pages: Dict[str, Page] = {}
         self.approval_state = {"event": None, "action": None, "image_url": None, "delivery": None}
+        self.current_searched_delivery: Dict[str, str] = {}
         self.load_env_vars()
 
     @property
@@ -89,8 +90,16 @@ class CHEPBotEngine:
         if headless is None:
             headless = os.getenv("RENDER") is not None
 
-        clean_profile_id = "PURM3" if "PURM3" in profile_name.upper() else "PURM2"
-        page_key = f"{clean_profile_id}_{site_type}"
+        actual_site_type = "service_desk" if "service_desk" in site_type else "cma"
+
+        # Se for o monitoramento (service_desk), força modo silencioso (headless) e isola o perfil
+        if actual_site_type == "service_desk":
+            headless = True
+            clean_profile_id = "PURM3_MONITOR" if "PURM3" in profile_name.upper() else "PURM2_MONITOR"
+        else:
+            clean_profile_id = "PURM3" if "PURM3" in profile_name.upper() else "PURM2"
+
+        page_key = f"{clean_profile_id}_{actual_site_type}"
 
         if page_key in self.pages:
             try:
@@ -134,13 +143,17 @@ class CHEPBotEngine:
                 context = None
                 
             if context is None:
-                # Força o fechamento apenas de instâncias do Chrome iniciadas pelo Playwright (evitando fechar o navegador pessoal do usuário)
-                try:
-                    import subprocess
-                    ps_cmd = "Get-Process chrome -ErrorAction SilentlyContinue | Where-Object {$_.Path -like '*ms-playwright*'} | Stop-Process -Force"
-                    subprocess.run(["powershell", "-Command", ps_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except:
-                    pass
+                # Remove a pasta de sessoes para impedir que o Chrome restaure abas órfãs
+                import shutil
+                sessions_dir = os.path.join(user_data_dir, "Default", "Sessions")
+                if os.path.exists(sessions_dir):
+                    try:
+                        shutil.rmtree(sessions_dir)
+                    except:
+                        pass
+                
+                # Cada perfil tem seu próprio contexto isolado — NÃO encerra outros perfis
+                # O user_data_dir já é único por perfil (purm2 / purm3), garantindo isolamento total
                 context = await self.playwright.chromium.launch_persistent_context(
                     user_data_dir=user_data_dir,
                     headless=headless,
@@ -154,13 +167,46 @@ class CHEPBotEngine:
             self.log(f"🌐 [LOG] Navegando para a URL do {site_type}...")
 
             try:
-                if len(context.pages) == 1 and context.pages[0].url == "about:blank":
+                # O usuário pediu ESTRITAMENTE apenas 2 abas.
+                # Aba 0: CMA Web
+                # Aba 1: Service Desk
+                
+                if actual_site_type == "cma":
                     page = context.pages[0]
                 else:
-                    page = await context.new_page()
+                    # Se for Service Desk, usamos a segunda aba. Se não existir, criamos.
+                    if len(context.pages) < 2:
+                        page = await context.new_page()
+                    else:
+                        page = context.pages[1]
                 
-                target_url = "https://contact.cmaweb.chep.com/workspaces/CHEP/requests?page=0&step=10" if "service_desk" in site_type else "https://cmaweb.chep.com/bluechat"
-                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                # Fecha qualquer aba extra (além de 2) que tenha ficado órfã
+                extra_pages = context.pages[2:]
+                for p in extra_pages:
+                    try:
+                        await p.close()
+                    except:
+                        pass
+                
+                self.pages[page_key] = page
+                
+                try:
+                    await page.bring_to_front()
+                except:
+                    pass
+                
+                target_url = "https://contact.cmaweb.chep.com/workspaces/CHEP/requests?page=0&step=10" if "service_desk" in actual_site_type else "https://cmaweb.chep.com/"
+                
+                # Só navega se a URL atual não for o domínio alvo
+                current_url = page.url
+                needs_nav = True
+                if "service_desk" in actual_site_type and "workspaces/CHEP/requests" in current_url:
+                    needs_nav = False
+                elif "service_desk" not in actual_site_type and "cmaweb.chep.com" in current_url and "workspaces" not in current_url:
+                    needs_nav = False
+                    
+                if needs_nav:
+                    await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
                 
             except Exception as e:
                 err_msg = str(e).lower()
@@ -280,15 +326,22 @@ class CHEPBotEngine:
                 await asyncio.sleep(1)
 
         # 2. Se a página atual for a HOME (/home), acessa a 'Gestão de carga'
-        if "home" in page.url or await page.locator("div:has-text('Gestão de carga')").first.is_visible(timeout=2000):
+        card_gestao = page.locator(".cardWidget-header").filter(has_text="Gestão de carga").first
+        is_home_url = "home" in page.url
+        is_card_visible = False
+        try:
+            is_card_visible = await card_gestao.is_visible(timeout=2000)
+        except:
+            pass
+
+        if is_home_url or is_card_visible:
             self.log("🏠 Posição atual: Tela HOME. Acessando 'Gestão de carga'...")
-            card_gestao = page.locator("div:has-text('Gestão de carga'), a:has-text('Gestão de carga'), .cardWidget-header").first
-            if await card_gestao.is_visible(timeout=3000):
+            if is_card_visible:
                 await card_gestao.click()
                 await asyncio.sleep(2.5)
                 await self.save_debug_screenshot(page, "debug_03_gestao_carga", "Print 3 - Gestão de Carga")
             else:
-                await page.goto("https://cmaweb.chep.com/bluechat", wait_until="domcontentloaded")
+                await page.goto("https://cmaweb.chep.com/", wait_until="domcontentloaded")
                 await asyncio.sleep(2)
 
         return True
@@ -328,8 +381,8 @@ class CHEPBotEngine:
         try:
             self.log(f"\n🔐 [Passo 1/2] Verificando Autenticação e Gestão de Carga para a conta {profile_name}...")
             
-            if "bluechat" not in page.url and "home" not in page.url:
-                await page.goto("https://cmaweb.chep.com/bluechat", wait_until="domcontentloaded", timeout=60000)
+            if "cmaweb.chep.com" not in page.url:
+                await page.goto("https://cmaweb.chep.com/", wait_until="domcontentloaded", timeout=60000)
                 await asyncio.sleep(1.5)
 
             # Sempre garante o Login e a entrada na Gestão de Carga ANTES de pesquisar
@@ -340,229 +393,279 @@ class CHEPBotEngine:
                 await card_header.click()
                 await asyncio.sleep(2)
 
-            # Apenas após Login e Gestão de Carga, inicia a pesquisa da Delivery
-            self.log(f"\n🟢 [Passo 2/2] Pesquisando a Delivery #{delivery_clean} na Gestão de Carga...")
-            
+            # OTIMIZAÇÃO: Verifica se a Delivery já está filtrada e visível na tela
+            clean_profile_id = "PURM3" if "PURM3" in profile_name.upper() else "PURM2"
+            page_key = f"{clean_profile_id}_cma"
+            btn_criar_nota_test = page.get_by_role("button", name="CRIAR UMA NOTA")
+
+            is_already_searched = False
             try:
-                await page.bring_to_front()
-            except:
+                if self.current_searched_delivery.get(page_key) == delivery_clean:
+                    if await btn_criar_nota_test.is_visible(timeout=1000):
+                        is_already_searched = True
+                        self.log(f"⚡ [OTIMIZAÇÃO] Delivery #{delivery_clean} já está pesquisada na tela! Prosseguindo direto para a modal...")
+            except Exception:
                 pass
 
-            deliv_input = page.locator('app-data-filter-multi-string-input').filter(has_text='Número de entrega').get_by_role('textbox')
-            if not await deliv_input.is_visible(timeout=2000):
-                deliv_input = page.locator("app-data-filter-multi-string-input input, input[placeholder*='entrega']").last
+            if not is_already_searched:
+                self.log(f"\n🟢 [Passo 2/2] Pesquisando a Delivery #{delivery_clean} na Gestão de Carga...")
+                
+                try:
+                    await page.bring_to_front()
+                except:
+                    pass
 
-            if await deliv_input.is_visible(timeout=2500):
-                await deliv_input.click(force=True)
-                await deliv_input.fill("")
-                await deliv_input.fill(delivery_clean)
-                await deliv_input.press("Enter")
-                self.log(f"   🟢 [OK] Número de entrega ({delivery_clean}) confirmado via Enter!")
-                await asyncio.sleep(0.5)
+                deliv_input = page.locator('app-data-filter-multi-string-input').filter(has_text='Número de entrega').get_by_role('textbox')
+                if not await deliv_input.is_visible(timeout=2000):
+                    deliv_input = page.locator("app-data-filter-multi-string-input input, input[placeholder*='entrega']").last
 
-                btn_apply = page.get_by_role('button', name=' Apply')
-                if not await btn_apply.is_visible(timeout=1500):
-                    btn_apply = page.get_by_role("button", name="Apply")
-                if not await btn_apply.is_visible(timeout=1500):
-                    btn_apply = page.locator("button:has-text('APPLY'), button:has-text('Apply')").first
+                if await deliv_input.is_visible(timeout=2500):
+                    await deliv_input.click(force=True)
+                    await deliv_input.fill("")
+                    await deliv_input.fill(delivery_clean)
+                    await deliv_input.press("Enter")
+                    self.log(f"   🟢 [OK] Número de entrega ({delivery_clean}) confirmado via Enter!")
+                    await asyncio.sleep(0.5)
 
-                if await btn_apply.is_visible(timeout=2000):
-                    await btn_apply.click(force=True)
-                    self.log("   🟢 [OK] Clicado no botão Apply!")
-                    await asyncio.sleep(2.5)
+                    btn_apply = page.get_by_role('button', name=' Apply')
+                    if not await btn_apply.is_visible(timeout=1500):
+                        btn_apply = page.get_by_role("button", name="Apply")
+                    if not await btn_apply.is_visible(timeout=1500):
+                        btn_apply = page.locator("button:has-text('APPLY'), button:has-text('Apply')").first
 
-            modal = page.locator(".modal-content, .modal-dialog, [role='dialog'], div:has-text('Criação de notas')").last
+                    if await btn_apply.is_visible(timeout=2000):
+                        await btn_apply.click(force=True)
+                        self.log("   🟢 [OK] Clicado no botão Apply!")
+                        await asyncio.sleep(2.5)
+                        self.current_searched_delivery[page_key] = delivery_clean
 
-            max_modal_attempts = 50
+            # --- CHECAGEM RIGOROSA DE "0 Entregas selecionadas" LOGO APÓS A PESQUISA ---
+            zero_locator = page.locator("text=/0\\s+entregas\\s+selecionadas/i").first
+            btn_exists = page.locator("button, a").filter(has_text="CRIAR UMA NOTA")
+            
+            try:
+                if await zero_locator.is_visible(timeout=1500) or (await btn_exists.count() == 0 and not await page.locator(".modal-content").is_visible(timeout=500)):
+                    if await zero_locator.is_visible(timeout=500) or await btn_exists.count() == 0:
+                        self.log(f"   ❌ ERRO: A Delivery #{delivery_clean} NÃO EXISTE no perfil {profile_name} (0 Entregas selecionadas).")
+                        self.current_searched_delivery[page_key] = None
+                        return "ZERO_ENTREGAS"
+            except Exception:
+                pass
+
+            modal = page.locator(".modal-content").filter(has_text="Criação de notas").first
+
+            max_modal_attempts = 8
             modal_ready = False
 
             for attempt in range(1, max_modal_attempts + 1):
                 self.log(f"\n⏳ [2/6] Verificando e abrindo a Modal (Tentativa {attempt}/{max_modal_attempts})...")
                 
+                # --- VERIFICAÇÃO DE "0 Entregas selecionadas" NO LOOP ---
+                try:
+                    if await zero_locator.is_visible(timeout=500):
+                        self.log(f"   ❌ ERRO: A Delivery #{delivery_clean} NÃO EXISTE no perfil {profile_name} (0 Entregas selecionadas).")
+                        self.current_searched_delivery[page_key] = None
+                        return "ZERO_ENTREGAS"
+                except Exception:
+                    pass
+                
                 is_modal_already_open = False
                 try:
-                    if await modal.is_visible(timeout=1500):
+                    if await modal.is_visible(timeout=1000):
                         is_modal_already_open = True
                         self.log("📌 Modal 'Criação de notas' já está aberta na tela!")
                 except Exception:
                     pass
 
                 if not is_modal_already_open:
-                    self.log(f"   👉 Marcando a caixa da Entrega #{delivery_clean}...")
-                    try:
-                        # 1. Procura a caixa de seleção específica da entrega com filtro exato
-                        chk_entrega = page.locator(".cardWidget, tr, div").filter(has_text=delivery_clean).locator("input[type='checkbox']").first
-                        if not await chk_entrega.is_visible(timeout=1500):
-                            chk_entrega = page.locator("input[type='checkbox']").first
+                    self.log(f"   ⏱️ Abrindo modal para Entrega #{delivery_clean}...")
 
-                        if await chk_entrega.is_visible(timeout=2000):
-                            if not await chk_entrega.is_checked():
-                                await chk_entrega.click(force=True)
-                                await asyncio.sleep(1)
-                                self.log(f"   🟢 Checkbox da Entrega #{delivery_clean} marcado!")
-                    except Exception as e_row:
-                        self.log(f"   ⚠️ Aviso ao marcar checkbox da entrega: {e_row}")
+                    # Tenta clicar diretamente no botão azul "CRIAR UMA NOTA" da entrega
+                    modal_opened = False
+                    
+                    # Estratégia 1: botão "CRIAR UMA NOTA" direto (mais confiável)
+                    btn_candidates = [
+                        page.get_by_role("button", name="CRIAR UMA NOTA"),
+                        page.get_by_role("button", name="Criar uma nota"),
+                        page.locator("button.btn-primary:has-text('CRIAR')"),
+                        page.locator("a.btn:has-text('CRIAR')"),
+                        page.locator("[class*='btn']:has-text('CRIAR UMA NOTA')"),
+                        page.locator("button, a").filter(has_text="CRIAR UMA NOTA").last,
+                        page.locator("button, a").filter(has_text="Criar uma nota").last,
+                    ]
 
-                    # Clica no botão CRIAR UMA NOTA dentro da barra superior ou da entrega
-                    create_note_btn = page.locator("button:has-text('CRIAR UMA NOTA'), button:has-text('Criar uma nota'), button:has-text('Create note'), a:has-text('Criar uma nota')").first
-                    if not await create_note_btn.is_visible(timeout=2500):
-                        create_note_btn = page.get_by_role('button', name='Criar uma nota')
+                    for btn in btn_candidates:
+                        try:
+                            if await btn.is_visible(timeout=800):
+                                await btn.scroll_into_view_if_needed()
+                                await btn.click(force=True)
+                                self.log("   ✅ Botão 'CRIAR UMA NOTA' clicado!")
+                                break
+                        except:
+                            continue
 
                     await self.save_debug_screenshot(page, "debug_05_botao_criar_nota", "Print 5 - Botão Criar Nota")
-                    
-                    if await create_note_btn.is_visible(timeout=3000):
-                        await create_note_btn.click(force=True)
-                        self.log("   🟢 Botão 'Criar uma nota' clicado com sucesso!")
-                    else:
-                        self.log("   ⚠️ Tentando acionar botão de criar nota...")
-                        await page.keyboard.press("Enter")
-                    
                     await asyncio.sleep(1)
 
-                # 1. Aguarda visibilidade da Modal e captura print debug_06_modal_aberta
+                # Aguarda visibilidade da Modal — se não abriu, volta ao topo do loop
+                modal_abriu = False
                 try:
-                    await modal.wait_for(state="visible", timeout=10000)
+                    await modal.wait_for(state="visible", timeout=4000)
+                    modal_abriu = True
                 except Exception:
                     pass
 
                 await self.save_debug_screenshot(page, "debug_06_modal_aberta", "Print 6 - Modal Aberta")
 
-                # 2. SELEÇÃO DO PROCESSO* (com verificação de estado bloqueado/cinza e retry loop)
+                if not modal_abriu:
+                    self.log(f"   ⚠️ Modal não abriu na tentativa {attempt}! Tentando novamente...")
+                    # Fecha qualquer popup que possa estar bloqueando e tenta de novo
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.5)
+                    continue
+
+                # 2. SELEÇÃO DO PROCESSO* (com verificação de estado bloqueado/cinza e retry instantâneo)
                 try:
                     proc_select = modal.locator("ng-select").first
-                    if not await proc_select.is_visible(timeout=2000):
-                        proc_select = page.locator("ng-select").first
+                    # Modal confirmada aberta - aguarda até 5s para o ng-select renderizar
+                    if not await proc_select.is_visible(timeout=5000):
+                        self.log("   ⚠️ Modal abriu mas ng-select não apareceu em 5s. Fechando e repetindo...")
+                        await page.keyboard.press("Escape")
+                        await asyncio.sleep(0.5)
+                        continue
 
-                    # Verifica se o campo de processo/modelo está desativado/cinza
-                    is_disabled = (
-                        await proc_select.locator(".ng-select-disabled").count() > 0 or
-                        await proc_select.get_attribute("aria-disabled") == "true" or
-                        await proc_select.get_attribute("disabled") is not None or
-                        "ng-select-disabled" in (await proc_select.get_attribute("class") or "")
-                    )
-                    val_text_init = await proc_select.inner_text()
+                    # Aguarda até 3 segundos para o campo "Processo" carregar os dados do servidor
+                    chip_loaded = False
+                    is_disabled = False
+                    val_text_init = ""
                     
-                    if is_disabled or ("LATAM" not in val_text_init and "Logistics" not in val_text_init and await proc_select.locator(".ng-value").count() == 0):
-                        # Testa interatividade do campo
-                        await proc_select.scroll_into_view_if_needed()
-                        await proc_select.click(force=True)
-                        await asyncio.sleep(0.8)
-
-                        # Garante que só verifica painéis drop-down que estão VISÍVEIS na tela
-                        panel_locator = page.locator(".ng-dropdown-panel")
-                        has_panel = False
-                        for i in range(await panel_locator.count()):
-                            if await panel_locator.nth(i).is_visible():
-                                has_panel = True
-                                break
-
-                        val_check = await proc_select.inner_text()
+                    for _ in range(6):
+                        class_attr = await proc_select.get_attribute("class", timeout=1000) or ""
+                        is_disabled = "ng-select-disabled" in class_attr
+                        val_text_init = await proc_select.inner_text(timeout=500)
                         
-                        # Se não abriu o dropdown E não está preenchido, está travado (cinza)
-                        if not has_panel and "LATAM" not in val_check and "Logistics" not in val_check:
-                            if attempt < max_modal_attempts:
-                                self.log(f"   ⚠️ [RETRY Modal] Campos bloqueados (cinzas) na tentativa {attempt}/{max_modal_attempts}! Fechando e aguardando recarga...")
-                                close_btn = modal.locator("button.close, .modal-header .close, button:has-text('Cancelar'), button:has-text('Close'), .close").first
-                                if await close_btn.is_visible(timeout=2000):
-                                    await close_btn.click(force=True)
-                                else:
-                                    await page.keyboard.press("Escape")
-                                
-                                await asyncio.sleep(1)  # Tela respira mais rápido
-                                continue
+                        # Se não está desativado E já tem algum valor preenchido, carregou!
+                        if not is_disabled and ("LATAM" in val_text_init or "Logistics" in val_text_init or await proc_select.locator(".ng-value").count() > 0):
+                            chip_loaded = True
+                            break
+                        await asyncio.sleep(0.5)
+                    
+                    if is_disabled:
+                        # Campo travado/cinza - fechar e reabrir
+                        if attempt < max_modal_attempts:
+                            self.log(f"   ⚠️ [RETRY RÁPIDO] Chip cinza na tentativa {attempt}/{max_modal_attempts}! Refazendo...")
+                            close_btn = modal.locator("button.close, .modal-header .close, button:has-text('Cancelar'), button:has-text('Close'), .close").first
+                            if await close_btn.is_visible(timeout=1000):
+                                await close_btn.click(force=True)
                             else:
-                                self.log(f"   ⚠️ Limite de {max_modal_attempts} tentativas atingido! Tentando forçar o preenchimento...")
+                                await page.keyboard.press("Escape")
+                            await asyncio.sleep(0.3)
+                            continue
+                        else:
+                            self.log(f"   ⚠️ Limite de {max_modal_attempts} tentativas! Tentando forçar...")
                     else:
-                        modal_ready = True
-                        self.log(f"   🟢 [OK] Modal e campos habilitados (Tentativa {attempt}/{max_modal_attempts})!")
-                        break # Se está tudo certo, sai do loop imediatamente e vai para o passo 3
-                except Exception as e_proc_check:
-                    self.log(f"   ⚠️ Aviso na checagem do Processo: {e_proc_check}")
+                        if chip_loaded:
+                            self.log(f"   🟢 [OK] Modal carregada e chip já ativo pelo sistema! (Tentativa {attempt}/{max_modal_attempts})")
+                        else:
+                            self.log(f"   🟢 [OK] Modal carregada (chip vazio, vamos preencher). (Tentativa {attempt}/{max_modal_attempts})")
+                        
+                        # ---- PASSO 3: Preenche Processo e Tipo de Nota (dentro do loop para poder tentar de novo se falhar) ----
+                        self.log("📝 [3/6] Preenchendo Processo e Tipo de Nota...")
+                        
+                        if not chip_loaded:
+                            self.log("   -> Chip vazio, abrindo menu de Processo...")
+                            await proc_select.scroll_into_view_if_needed()
+                            
+                            arrow = proc_select.locator(".ng-arrow-wrapper").first
+                            if await arrow.is_visible(timeout=1000):
+                                await arrow.click(force=True)
+                            else:
+                                await proc_select.click(force=True)
+                                
+                            await asyncio.sleep(0.5)
 
-                # 3. Seleção do Processo (FORA do except - sempre executa)
-                self.log("📝 [3/6] Preenchendo Processo, Tipo de Nota e Assunto...")
-                try:
-                    proc_select = modal.locator("ng-select").first
-                    if not await proc_select.is_visible(timeout=2000):
-                        proc_select = page.locator("ng-select").first
+                            inp = proc_select.locator("input").first
+                            if await inp.is_visible(timeout=1500):
+                                await inp.click(force=True)
+                                await inp.fill("Logistics")
+                            else:
+                                await page.keyboard.type("Logistics", delay=80)
 
-                    await proc_select.scroll_into_view_if_needed()
-                    await proc_select.click(force=True)
-                    await asyncio.sleep(0.5)
+                            await asyncio.sleep(0.8)
 
-                    inp = proc_select.locator("input").first
-                    if await inp.is_visible(timeout=1500):
-                        await inp.fill("Logistics")
-                    else:
-                        await page.keyboard.type("Logistics", delay=80)
+                            opt_log = page.locator(".ng-dropdown-panel .ng-option, ng-dropdown-panel .ng-option").filter(has_text="Logistics").first
+                            if await opt_log.is_visible(timeout=2000):
+                                await opt_log.click(force=True)
+                            else:
+                                await page.keyboard.press("Enter")
 
-                    await asyncio.sleep(0.8)
+                            await asyncio.sleep(0.8)
 
-                    opt_log = page.locator(".ng-dropdown-panel .ng-option, ng-dropdown-panel .ng-option").filter(has_text="Logistics").first
-                    if await opt_log.is_visible(timeout=2000):
-                        await opt_log.click(force=True)
-                    else:
-                        await page.keyboard.press("Enter")
+                            val_text = await proc_select.inner_text()
+                            if "Logistics" not in val_text and "LATAM" not in val_text:
+                                self.log("   ⚠️ Re-tentando selecionar Processo...")
+                                if await arrow.is_visible(timeout=1000):
+                                    await arrow.click(force=True)
+                                else:
+                                    await proc_select.click(force=True)
+                                await asyncio.sleep(0.5)
+                                
+                                if await inp.is_visible(timeout=1000):
+                                    await inp.fill("")
+                                    await inp.type("LATAM - Brazil - Logistics", delay=50)
+                                else:
+                                    await page.keyboard.type("LATAM - Brazil - Logistics", delay=50)
+                                    
+                                await asyncio.sleep(0.5)
+                                await page.keyboard.press("Enter")
+                                await asyncio.sleep(0.8)
+                                val_text_retry = await proc_select.inner_text()
+                                if "Logistics" not in val_text_retry and "LATAM" not in val_text_retry:
+                                    raise Exception("O chip do Processo não ficou ativo após a seleção.")
 
-                    await asyncio.sleep(0.8)
+                        self.log("   🟢 [OK] Processo preenchido com sucesso!")
+                        await page.wait_for_timeout(1000)
 
-                    val_text = await proc_select.inner_text()
-                    if "Logistics" not in val_text and "LATAM" not in val_text:
-                        self.log("   ⚠️ Re-tentando selecionar Processo...")
-                        arrow = proc_select.locator(".ng-arrow-wrapper, .ng-select-container").first
-                        await arrow.click(force=True)
+                        # SELEÇÃO DO TIPO DE NOTA*
+                        self.log(f"   -> Preenchendo Tipo de Nota: '{note_type}'...")
+                        
+                        note_container = modal.locator("ng-select").nth(1)
+                        if not await note_container.is_visible(timeout=2000):
+                            note_container = page.locator("ng-select").nth(1)
+
+                        arrow_note = note_container.locator(".ng-arrow-wrapper, .ng-select-container").first
+                        if await arrow_note.is_visible(timeout=2000):
+                            await arrow_note.click(force=True)
+                        else:
+                            await note_container.click(force=True)
+
                         await asyncio.sleep(0.5)
-                        await page.keyboard.type("LATAM - Brazil - Logistics", delay=50)
+
+                        clean_search = note_type.split()[0] if " " in note_type else note_type
+                        await page.keyboard.type(clean_search, delay=50)
                         await asyncio.sleep(0.5)
-                        await page.keyboard.press("Enter")
+
+                        opt_note = page.locator(".ng-option").filter(has_text=note_type).first
+                        if not await opt_note.is_visible(timeout=1500):
+                            opt_note = page.locator(".ng-option").filter(has_text=clean_search).first
+
+                        if await opt_note.is_visible(timeout=1500):
+                            await opt_note.click(force=True)
+                        else:
+                            await page.keyboard.press("Enter")
                         
                         await asyncio.sleep(0.8)
-                        val_text_retry = await proc_select.inner_text()
-                        if "Logistics" not in val_text_retry and "LATAM" not in val_text_retry:
-                            raise Exception("O chip do Processo não ficou ativo após a seleção.")
+                        note_val_text = await note_container.inner_text()
+                        if clean_search not in note_val_text:
+                            raise Exception("O chip do Tipo de Nota não ficou ativo.")
 
-                    self.log("   🟢 [OK] Processo preenchido com sucesso!")
-                    await page.wait_for_timeout(1000)
+                        self.log(f"   🟢 [OK] Tipo de nota preenchido: '{note_type}'")
+                        
+                        modal_ready = True
+                        break # <-- SUCESSO! SAI DO LOOP DE TENTATIVAS DA MODAL!
 
-                    # 3. SELEÇÃO DO TIPO DE NOTA*
-                    self.log(f"   -> Preenchendo Tipo de Nota: '{note_type}'...")
-                    
-                    # O ng-select do Tipo de Nota é o segundo ng-select dentro da modal
-                    note_container = modal.locator("ng-select").nth(1)
-                    if not await note_container.is_visible(timeout=2000):
-                        note_container = page.locator("ng-select").nth(1)
-
-                    arrow_note = note_container.locator(".ng-arrow-wrapper, .ng-select-container").first
-                    if await arrow_note.is_visible(timeout=2000):
-                        await arrow_note.click(force=True)
-                    else:
-                        await note_container.click(force=True)
-
-                    await asyncio.sleep(0.5)
-
-                    # Digita a palavra-chave no campo de pesquisa
-                    clean_search = note_type.split()[0] if " " in note_type else note_type
-                    await page.keyboard.type(clean_search, delay=50)
-                    await asyncio.sleep(0.5)
-
-                    opt_note = page.locator(".ng-option").filter(has_text=note_type).first
-                    if not await opt_note.is_visible(timeout=1500):
-                        opt_note = page.locator(".ng-option").filter(has_text=clean_search).first
-
-                    if await opt_note.is_visible(timeout=1500):
-                        await opt_note.click(force=True)
-                    else:
-                        await page.keyboard.press("Enter")
-                    
-                    await asyncio.sleep(0.8)
-                    note_val_text = await note_container.inner_text()
-                    if clean_search not in note_val_text:
-                        raise Exception("O chip do Tipo de Nota não ficou ativo.")
-
-                    self.log(f"   🟢 [OK] Tipo de nota preenchido: '{note_type}'")
-
-                except Exception as e_proc_note:
-                    self.log(f"   ❌ Falha ao preencher campos básicos (Processo/Tipo): {e_proc_note}")
+                except Exception as e_proc_check:
+                    self.log(f"   ❌ Falha ao tentar preencher modal: {e_proc_check}")
                     if attempt < max_modal_attempts:
                         self.log("   ⚠️ Fechando modal e tentando de novo...")
                         close_btn = modal.locator("button.close, .modal-header .close, button:has-text('Cancelar'), button:has-text('Close'), .close").first
@@ -573,24 +676,8 @@ class CHEPBotEngine:
                         await asyncio.sleep(1)
                         continue
                     else:
-                        self.log(f"   ⚠️ Limite de {max_modal_attempts} tentativas atingido! Tentando prosseguir...")
-
-                # 4. PREENCHIMENTO DO ASSUNTO (Subject)
-                try:
-                    assunto_val = f"{delivery_clean} - {note_type}"
-                    assunto_input = modal.locator("input[name='subject'], input[placeholder*='Assunto'], input[placeholder*='Subject']").first
-                    if not await assunto_input.is_visible(timeout=1500):
-                        assunto_input = modal.locator("input[type='text']").first
-
-                    if await assunto_input.is_visible(timeout=2000):
-                        await assunto_input.click(force=True)
-                        await assunto_input.fill("")
-                        await assunto_input.fill(assunto_val)
-                        self.log(f"   🟢 [OK] Assunto preenchido: '{assunto_val}'")
-                except Exception as e_assunto:
-                    self.log(f"   ⚠️ Aviso ao preencher Assunto: {e_assunto}")
-
-                break
+                        self.log(f"   ⚠️ Limite de {max_modal_attempts} tentativas atingido! Tentando prosseguir para os próximos campos...")
+                        break
 
             # --- 2. Seleção da Prioridade ---
             self.log(f"   -> Selecionando Prioridade: '{priority}'...")
@@ -607,53 +694,48 @@ class CHEPBotEngine:
                 await ql_editor.wait_for(state="visible", timeout=4000)
                 await ql_editor.click(force=True)
                 
-                # Formata respeitando quebras de linha (\n) e linhas em branco (\n\n) injetando tags <p> e <p><br></p>
                 lines = description.replace('\r\n', '\n').split('\n')
-                html_blocks = []
-                for line in lines:
-                    line_clean = line.strip()
-                    if line_clean:
-                        html_blocks.append(f'<p>{line_clean}</p>')
-                    else:
-                        html_blocks.append('<p><br></p>')
+                for idx, line in enumerate(lines):
+                    if line:
+                        await ql_editor.press_sequentially(line, delay=5)
+                    if idx < len(lines) - 1:
+                        await page.keyboard.press("Shift+Enter")
                 
-                html_formatted = "".join(html_blocks)
-                await ql_editor.evaluate("(el, html) => { el.innerHTML = html; el.dispatchEvent(new Event('input', { bubbles: true })); }", html_formatted)
-                self.log("   🟢 [OK] Texto da mensagem preenchido no editor com espaçamento exato por linha!")
+                self.log("   🟢 [OK] Texto da mensagem digitado perfeitamente no editor!")
             except Exception as e_ed:
-                self.log(f"   ⚠️ Inserindo via fallback: {e_ed}")
-                try:
-                    await page.locator('.ql-editor').first.click(force=True)
-                    await page.keyboard.insert_text(description)
-                except Exception:
-                    pass
+                self.log(f"   ⚠️ Falha ao digitar texto no editor: {e_ed}")
 
-            # ANEXAR FOTO / ARQUIVO
-            if attachment_path and os.path.exists(attachment_path):
-                self.log(f"📎 [5/6] Anexando arquivo: {os.path.basename(attachment_path)}...")
-                try:
-                    # 1. Localiza o input de arquivo (mesmo que esteja invisível/escondido na modal)
-                    file_input = modal.locator('input[type="file"]').first
-                    if await file_input.count() == 0:
-                        file_input = page.locator('input[type="file"]').first
+            # ANEXAR FOTO / ARQUIVOS (Suporte a anexos sequenciais)
+            paths = []
+            if isinstance(attachment_path, list):
+                paths = [p for p in attachment_path if p and os.path.exists(p)]
+            elif isinstance(attachment_path, str) and os.path.exists(attachment_path):
+                paths = [attachment_path]
 
-                    if await file_input.count() > 0:
-                        # Usa o método correto da API Python do Playwright: set_input_files
-                        await file_input.set_input_files(attachment_path)
-                        await asyncio.sleep(1.5)
-                        self.log("   🟢 [OK] Arquivo anexado com sucesso via set_input_files!")
-                    else:
-                        # 2. Fallback via acionamento do botão 'Anexos'
-                        anexo_btn = modal.get_by_text('Anexos').first
-                        if await anexo_btn.is_visible(timeout=2000):
-                            async with page.expect_file_chooser() as fc_info:
-                                await anexo_btn.click(force=True)
-                            file_chooser = await fc_info.value
-                            await file_chooser.set_files(attachment_path)
+            if paths:
+                filenames_str = ", ".join([os.path.basename(p) for p in paths])
+                self.log(f"📎 [5/6] Anexando {len(paths)} foto(s) sequencialmente: {filenames_str}...")
+                for idx, single_path in enumerate(paths, start=1):
+                    try:
+                        file_input = modal.locator('input[type="file"]').first
+                        if await file_input.count() == 0:
+                            file_input = page.locator('input[type="file"]').first
+
+                        if await file_input.count() > 0:
+                            await file_input.set_input_files(single_path)
                             await asyncio.sleep(1.5)
-                            self.log("   🟢 [OK] Foto anexada via botão 'Anexos'!")
-                except Exception as e_att:
-                    self.log(f"   ⚠️ Falha ao anexar foto: {e_att}")
+                            self.log(f"   🟢 [OK] Foto {idx}/{len(paths)} ({os.path.basename(single_path)}) anexada com sucesso!")
+                        else:
+                            anexo_btn = modal.get_by_text('Anexos').first
+                            if await anexo_btn.is_visible(timeout=2000):
+                                async with page.expect_file_chooser() as fc_info:
+                                    await anexo_btn.click(force=True)
+                                file_chooser = await fc_info.value
+                                await file_chooser.set_files(single_path)
+                                await asyncio.sleep(1.5)
+                                self.log(f"   🟢 [OK] Foto {idx}/{len(paths)} ({os.path.basename(single_path)}) anexada via botão 'Anexos'!")
+                    except Exception as e_att:
+                        self.log(f"   ⚠️ Falha ao anexar foto {idx} ({os.path.basename(single_path)}): {e_att}")
             else:
                 self.log("📎 [5/6] Nenhum anexo de foto pendente para enviar.")
 
@@ -662,9 +744,60 @@ class CHEPBotEngine:
             os.makedirs(shots_dir, exist_ok=True)
             fname = f"preview_{delivery_clean}_{int(time.time())}.png"
             shot_file = os.path.join(shots_dir, fname)
-            await page.screenshot(path=shot_file)
             
-            self.log(f"⏳ Aguardando aprovação visual no Painel: /static/{fname}")
+            # Salva o tamanho atual do viewport para restaurar depois
+            old_viewport = page.viewport_size
+            try:
+                # Aumenta temporariamente a altura do viewport para caber a modal inteira
+                await page.set_viewport_size({"width": 1280, "height": 1800})
+                await asyncio.sleep(0.3)
+                
+                # Injeta estilo temporário para forçar a modal a se expandir por inteiro
+                await page.evaluate("""() => {
+                    const el = document.createElement('style');
+                    el.id = 'temp-screenshot-styles';
+                    el.innerHTML = `
+                        .modal, .modal-dialog, .modal-content, .modal-body {
+                            overflow: visible !important;
+                            max-height: none !important;
+                            height: auto !important;
+                        }
+                    `;
+                    document.head.appendChild(el);
+                    
+                    // Rola a página para o topo da modal
+                    let modal = document.querySelector('.modal-content') || document.querySelector('[role="dialog"]');
+                    if (modal) {
+                        modal.scrollIntoView({block: 'start'});
+                    }
+                }""")
+                await asyncio.sleep(0.5)
+                
+                # Tira o print focado apenas na modal (capturando a altura total dela)
+                modal_el = page.locator('.modal-content, [role="dialog"]').first
+                if await modal_el.is_visible(timeout=1000):
+                    await modal_el.screenshot(path=shot_file)
+                else:
+                    await page.screenshot(path=shot_file, full_page=True)
+            except Exception:
+                await page.screenshot(path=shot_file, full_page=True)
+            finally:
+                # Limpa o estilo temporário
+                try:
+                    await page.evaluate("""() => {
+                        const el = document.getElementById('temp-screenshot-styles');
+                        if (el) el.remove();
+                    }""")
+                except Exception:
+                    pass
+                # Restaura o tamanho do viewport original
+                if old_viewport:
+                    try:
+                        await page.set_viewport_size(old_viewport)
+                    except Exception:
+                        pass
+            
+            self.log(f"👀 Aguardando aprovação visual no Painel: /static/{fname}")
             
             approval_event = asyncio.Event()
             self.approval_state = {
@@ -802,8 +935,12 @@ class CHEPBotEngine:
                 await asyncio.sleep(2.5)
 
             table_rows = contact_page.locator("table tbody tr")
-            await table_rows.first.wait_for(state="visible", timeout=6000)
-            
+            try:
+                await table_rows.first.wait_for(state="visible", timeout=15000)
+            except Exception as wait_e:
+                self.log(f"   ⚠️ Timeout aguardando as linhas da tabela. A pesquisa por {delivery_number} pode não ter retornado resultados ou o site está muito lento.")
+                await self.save_debug_screenshot(contact_page, f"timeout_tabela_{delivery_number}", f"Print falha tabela #{delivery_number}")
+                return "ERROR_NOT_FOUND"
             row_text = await table_rows.first.inner_text()
             row_lower = row_text.lower()
             if "pending carrier reply" in row_lower or ("carrier reply" in row_lower and "internal" not in row_lower):
@@ -821,7 +958,7 @@ class CHEPBotEngine:
             editor = all_editors.last
             try:
                 count = await all_editors.count()
-                for i in range(count):
+                for i in reversed(range(count)):
                     if await all_editors.nth(i).is_visible(timeout=1000):
                         editor = all_editors.nth(i)
                         break
@@ -834,51 +971,47 @@ class CHEPBotEngine:
             
             await asyncio.sleep(0.5)
 
-            # Preenche respeitando quebras de linha (\n) e linhas em branco (\n\n)
-            lines = reply_message.replace('\r\n', '\n').split('\n')
-            html_blocks = []
-            for line in lines:
-                line_clean = line.strip()
-                if line_clean:
-                    html_blocks.append(f'<p>{line_clean}</p>')
-                else:
-                    html_blocks.append('<p><br></p>')
-            html_formatted = "".join(html_blocks)
-
-            await editor.evaluate("""(el, html) => {
-                el.focus();
-                el.innerHTML = html;
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            }""", html_formatted)
-            
             await asyncio.sleep(0.5)
-            # Digita uma tecla no editor focado do lado direito
-            await editor.press("End")
-            await contact_page.keyboard.type(" ", delay=50)
+            await editor.click()
+            lines = reply_message.replace('\r\n', '\n').split('\n')
+            for idx, line in enumerate(lines):
+                if line:
+                    await editor.press_sequentially(line, delay=5)
+                if idx < len(lines) - 1:
+                    await contact_page.keyboard.press("Shift+Enter")
+            await asyncio.sleep(0.5)
+            await contact_page.keyboard.press("Space")
             await contact_page.keyboard.press("Backspace")
             await asyncio.sleep(1)
 
-            # ANEXAR FOTO / ARQUIVO NO SERVICE DESK (2º SITE)
-            if attachment_path and os.path.exists(attachment_path):
-                self.log(f"📎 [Service Desk] Anexando foto/comprovante: {os.path.basename(attachment_path)}...")
-                try:
-                    file_input = contact_page.locator("input[type='file']").first
-                    if await file_input.count() > 0:
-                        await file_input.set_input_files(attachment_path)
-                        await asyncio.sleep(2)
-                        self.log("   🟢 [OK] Foto anexada no Service Desk com sucesso!")
-                    else:
-                        select_file_btn = contact_page.locator("a:has-text('or select a file'), label:has-text('or select a file'), :has-text('or select a file')").last
-                        if await select_file_btn.is_visible(timeout=3000):
-                            async with contact_page.expect_file_chooser() as fc_info:
-                                await select_file_btn.click(force=True)
-                            file_chooser = await fc_info.value
-                            await file_chooser.set_files(attachment_path)
+            # ANEXAR FOTO / ARQUIVOS NO SERVICE DESK (2º SITE - SEQUENCIAL)
+            paths = []
+            if isinstance(attachment_path, list):
+                paths = [p for p in attachment_path if p and os.path.exists(p)]
+            elif isinstance(attachment_path, str) and os.path.exists(attachment_path):
+                paths = [attachment_path]
+
+            if paths:
+                filenames_str = ", ".join([os.path.basename(p) for p in paths])
+                self.log(f"📎 [Service Desk] Anexando {len(paths)} foto(s) sequencialmente: {filenames_str}...")
+                for idx, single_path in enumerate(paths, start=1):
+                    try:
+                        file_input = contact_page.locator("input[type='file']").first
+                        if await file_input.count() > 0:
+                            await file_input.set_input_files(single_path)
                             await asyncio.sleep(2)
-                            self.log("   🟢 [OK] Foto anexada clicando em 'or select a file'!")
-                except Exception as e_att:
-                    self.log(f"   ⚠️ Falha ao anexar no Service Desk: {e_att}")
+                            self.log(f"   🟢 [OK] Foto {idx}/{len(paths)} ({os.path.basename(single_path)}) anexada no Service Desk com sucesso!")
+                        else:
+                            select_file_btn = contact_page.locator("a:has-text('or select a file'), label:has-text('or select a file'), :has-text('or select a file')").last
+                            if await select_file_btn.is_visible(timeout=3000):
+                                async with contact_page.expect_file_chooser() as fc_info:
+                                    await select_file_btn.click(force=True)
+                                file_chooser = await fc_info.value
+                                await file_chooser.set_files(single_path)
+                                await asyncio.sleep(2)
+                                self.log(f"   🟢 [OK] Foto {idx}/{len(paths)} ({os.path.basename(single_path)}) anexada via botão no Service Desk!")
+                    except Exception as e_att:
+                        self.log(f"   ⚠️ Falha ao anexar foto {idx} no Service Desk: {e_att}")
 
             send_btn = contact_page.locator("button:has(.fa-paper-plane), button:has-text('Send'), button.btn-primary:has(svg)").first
             if await send_btn.is_visible(timeout=3000):
@@ -943,9 +1076,9 @@ class CHEPBotEngine:
                     try: await self.contexts[clean_profile_id].close()
                     except: pass
                     self.contexts[clean_profile_id] = None
-                page_key = f"{clean_profile_id}_service_desk_monitor"
+                page_key = f"{clean_profile_id}_service_desk"
                 if page_key in self.pages: del self.pages[page_key]
-                contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk_monitor")
+                contact_page = await self.get_browser_for_profile(profile_name, site_type="service_desk")
                 await contact_page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
                 
             await asyncio.sleep(2)
@@ -1007,6 +1140,8 @@ class CHEPBotEngine:
                     
                     if "no results" in row_lower or "0 results" in row_lower:
                         continue
+                    
+                    self.log(f"📄 [Debug] Row content: {row_text.strip()}")
 
                     if "pending carrier reply" in row_lower or ("carrier reply" in row_lower and "internal" not in row_lower):
                         has_purple_reply = True

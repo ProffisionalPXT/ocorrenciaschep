@@ -1,9 +1,9 @@
 [
   {
-    "id": "dados_motorista",
-    "title": "DADOS MOTORISTA / VEÍCULO",
-    "note_type": "SAP (Not App) DADOS MOTORISTA / VEÍCULO",
-    "text": "Segue abaixo dados do veiculo e motorista que irá realizar a coleta.\n\nNOME: {NOME}\nCPF: {CPF}\nPLACA: {PLACA}"
+    "id": "localizacao_do_veiculo",
+    "title": "LOCALIZAÇÃO DO VEICULO",
+    "note_type": "SAP (Not App) LOCALIZAÇÃO DO VEÍCULO",
+    "text": "Veiculo encontra-se no D para realizar o carregamento."
   },
   {
     "id": "coletado",
@@ -12,52 +12,65 @@
     "text": "COLETADO"
   },
   {
-    "id": "qtde_divergente",
-    "title": "QTDE DIVERGENTE",
-    "note_type": "SAP (D0) QTDE DIVERGENTE (MAIOR OU MENOR) DE PALLETS",
-    "text": "Veiculo na doca aguardando para carregar, motorista informou que por normas de segurança do D não é possível acompanhar o carregamento."
-  },
-  {
-    "id": "localizacao_do_veiculo",
-    "title": "LOCALIZAÇÃO DO VEICULO",
-    "note_type": "SAP (Not App) LOCALIZAÇÃO DO VEÍCULO",
-    "text": "Veiculo encontra-se no D para realizar o carregamento."
-  },
-  {
     "id": "excesso_veiculos",
     "title": "PROBLEMA DE ACESSO / EXCESSO DE VEICULO",
     "note_type": "SAP (ZJ) PROBLEMA DE ACESSO / EXCESSO DE VEÍCULOS NO CLIENTE",
     "text": "Veiculo no D aguardando acesso para realizar o carregamento. Motorista informou que devido ao excesso de veiculos não tem previsão para o carregamento.\n\nFavor, verificar e como proceder"
   },
   {
-    "id": "deslocamento_vazio",
-    "title": "DESLOCAMENTO VAZIO (Envio no 2º Site)",
-    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
-    "text": "Por falta de retorno e exceder o limite de 2H de espera e não ter sucesso na coleta estamos retirando o veiculo do local.\n\nFavor, autorizar deslocamento vazio."
+    "id": "excesso_veiculos_2",
+    "title": "PROBLEMA DE ACESSO 2 (Na Doca Sem Previsão)",
+    "note_type": "SAP (ZJ) PROBLEMA DE ACESSO / EXCESSO DE VEÍCULOS NO CLIENTE",
+    "text": "Veiculo na doca aguardando inicio do carregamento, motorista foi informado que não tem previsão\n\nFavor, verificar e como proceder."
   },
   {
-    "id": "bloqueio_delivery",
-    "title": "BLOQUEIO DE DELIVERY (Envio no 2º Site)",
-    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
-    "text": "Por falta de retorno e exceder o limite de 2H de espera e não ter sucesso na coleta estamos retirando o veiculo do local.\n\nFavor, bloquear a delivery"
-  },
-  {
-    "id": "resposta_1",
-    "title": "MODO RESPOSTA 1 - Aguardando início do carregamento (Envio no 2º Site)",
-    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
-    "text": "Veiculo segue no local aguardando inicio do carregamento.\n\nFavor, verificar e como proceder."
-  },
-  {
-    "id": "resposta_2",
-    "title": "MODO RESPOSTA 2 - Aguardando novas informações (Envio no 2º Site)",
-    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
-    "text": "Veiculo segue no local aguardando novas informações e como proceder.\n\nFavor, verificar e como proceder."
+    "id": "excesso_veiculos_3",
+    "title": "PROBLEMA DE ACESSO 3 (Lado de Fora do D)",
+    "note_type": "SAP (ZJ) PROBLEMA DE ACESSO / EXCESSO DE VEÍCULOS NO CLIENTE",
+    "text": "Veiculo ao lado de fora do D aguardando acesso para realizar o carregamento\n\nFavor, verificar e como proceder."
   },
   {
     "id": "atraso_transportadora",
     "title": "ATRASO DA TRANSPORTADORA",
     "note_type": "SAP (DX) ATRASO DA TRANSPORTADORA",
     "text": "Veiculo encontra-se no D para realizar o carregamento."
+  },
+  {
+    "id": "problema_emissao_nf",
+    "title": "PROBLEMA NA EMISSÃO DE NF",
+    "note_type": "SAP (L4) PROBLEMAS NA EMISSÃO DE NF",
+    "text": "Veiculo carregado aguardando apenas a NF."
+  },
+  {
+    "id": "qtde_divergente",
+    "title": "QTDE DIVERGENTE",
+    "note_type": "SAP (D0) QTDE DIVERGENTE (MAIOR OU MENOR) DE PALLETS",
+    "text": "Veiculo na doca aguardando para carregar, motorista informou que por normas de segurança do D não é possível acompanhar o carregamento."
+  },
+  {
+    "id": "aguardando_descarregar_cs",
+    "title": "AGUARDANDO DESCARREGAR NO CS (Com Previsão)",
+    "note_type": "SAP (Not App) LOCALIZAÇÃO DO VEÍCULO",
+    "is_cs_descarregar": true,
+    "default_delivery_cs": "3787020202",
+    "default_horario": "10",
+    "text": "Veiculo no CS aguardando descarregar a delivery 3787020202, para seguir para proxima operação. Previsão de chegada as 10h."
+  },
+  {
+    "id": "sem_paletes_no_d",
+    "title": "SEM PALETES NO D (Sem Paletes)",
+    "note_type": "SAP (ZV) SEM PALETES NO D",
+    "is_sem_paletes": true,
+    "default_nome": "Leandro",
+    "text": "Veiculo no D aguardando para carregar, onde o motorista foi informado pelo Sr. Leandro que o D não tem paletes para carregar.\n\nFavor, verificar e como proceder."
+  },
+  {
+    "id": "sem_agendamento",
+    "title": "SEM AGENDAMENTO (Falha no Processo de Agendamento)",
+    "note_type": "SAP (D1) SEM AGENDAMENTO (FALHA NO PROCESSO DE AGENDAMENTO)",
+    "is_sem_agendamento": true,
+    "default_nome": "Andre",
+    "text": "Veiculo no D aguardando para carregar, motorista foi informado pelo Sr. Andre que não tem agendamento para o dia de hoje, e que não será possível realizar o carregamento CHEP.\n\nFavor, verificar e como proceder."
   },
   {
     "id": "criacao_de_linha_geral",
@@ -78,34 +91,27 @@
     "text": "Favor Alterar Ordem, pois a Nota Fiscal 2763971. 408 Pallets saiu com o CNPJ: 06.189.213/0001-90"
   },
   {
-    "id": "problema_emissao_nf",
-    "title": "PROBLEMA NA EMISSÃO DE NF",
-    "note_type": "SAP (L4) PROBLEMAS NA EMISSÃO DE NF",
-    "text": "Veiculo carregado aguardando apenas a NF."
+    "id": "bloqueio_delivery",
+    "title": "BLOQUEIO DE DELIVERY (Envio no 2º Site)",
+    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
+    "text": "Por falta de retorno e exceder o limite de 2H de espera e não ter sucesso na coleta estamos retirando o veiculo do local.\n\nFavor, bloquear a delivery"
   },
   {
-    "id": "sem_paletes_no_d",
-    "title": "SEM PALETES NO D (Sem Paletes)",
-    "note_type": "SAP (ZV) SEM PALETES NO D",
-    "is_sem_paletes": true,
-    "default_nome": "Leandro",
-    "text": "Veiculo no D aguardando para carregar, onde o motorista foi informado pelo Sr. Leandro que o D não tem paletes para carregar.\n\nFavor, verificar e como proceder."
+    "id": "deslocamento_vazio",
+    "title": "DESLOCAMENTO VAZIO (Envio no 2º Site)",
+    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
+    "text": "Por falta de retorno e exceder o limite de 2H de espera e não ter sucesso na coleta estamos retirando o veiculo do local.\n\nFavor, autorizar deslocamento vazio."
   },
   {
-    "id": "sem_agendamento",
-    "title": "SEM AGENDAMENTO (Falha no Processo de Agendamento)",
-    "note_type": "SAP (D1) SEM AGENDAMENTO (FALHA NO PROCESSO DE AGENDAMENTO)",
-    "is_sem_agendamento": true,
-    "default_nome": "Andre",
-    "text": "Veiculo no D aguardando para carregar, motorista foi informado pelo Sr. Andre que não tem agendamento para o dia de hoje, e que não será possível realizar o carregamento CHEP.\n\nFavor, verificar e como proceder."
+    "id": "resposta_1",
+    "title": "MODO RESPOSTA 1 - Aguardando início do carregamento (Envio no 2º Site)",
+    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
+    "text": "Veiculo segue no local aguardando inicio do carregamento.\n\nFavor, verificar e como proceder."
   },
   {
-    "id": "aguardando_descarregar_cs",
-    "title": "AGUARDANDO DESCARREGAR NO CS (Com Previsão)",
-    "note_type": "SAP (Not App) LOCALIZAÇÃO DO VEÍCULO",
-    "is_cs_descarregar": true,
-    "default_delivery_cs": "3787020202",
-    "default_horario": "10",
-    "text": "Veiculo no CS aguardando descarregar a delivery 3787020202, para seguir para proxima operação. Previsão de chegada as 10h."
+    "id": "resposta_2",
+    "title": "MODO RESPOSTA 2 - Aguardando novas informações (Envio no 2º Site)",
+    "note_type": "SAP (C1) ERRO ORIGEM(GLID) POR AGENDAMENTO",
+    "text": "Veiculo segue no local aguardando novas informações e como proceder.\n\nFavor, verificar e como proceder."
   }
 ]
