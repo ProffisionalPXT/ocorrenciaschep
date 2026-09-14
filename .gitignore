@@ -5,4 +5,13 @@ __pycache__/
 .env
 screenshots/
 uploads/
-.git/
+static/preview_*.png
+static/debug_*.png
+static/resposta_*.png
+static/timeout_*.png
+temp_*.txt
+*.log
+local_render_state.json
+last_check_time.json
+daily_deliveries.json
+logs_history.json
