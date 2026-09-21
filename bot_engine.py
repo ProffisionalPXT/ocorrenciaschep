@@ -439,18 +439,26 @@ class CHEPBotEngine:
                         await asyncio.sleep(2.5)
                         self.current_searched_delivery[page_key] = delivery_clean
 
-            # --- CHECAGEM RIGOROSA DE "0 Entregas selecionadas" LOGO APÓS A PESQUISA ---
-            zero_locator = page.locator("text=/0\\s+entregas\\s+selecionadas/i").first
-            btn_exists = page.locator("button, a").filter(has_text="CRIAR UMA NOTA")
-            
+            # --- CHECAGEM ROBUSTA NATIVA DE "0 Entregas selecionadas" / DELIVERY NÃO ENCONTRADA ---
             try:
-                if await zero_locator.is_visible(timeout=1500) or (await btn_exists.count() == 0 and not await page.locator(".modal-content").is_visible(timeout=500)):
-                    if await zero_locator.is_visible(timeout=500) or await btn_exists.count() == 0:
+                page_status = await page.evaluate("""() => {
+                    const text = document.body ? (document.body.innerText || '') : '';
+                    const hasZero = /0\\s+entregas\\s+selecionadas/i.test(text);
+                    const hasCriar = /CRIAR UMA NOTA/i.test(text);
+                    const modalOpen = !!(document.querySelector('.modal-content') && document.querySelector('.modal-content').offsetParent !== null);
+                    return { hasZero, hasCriar, modalOpen };
+                }""")
+                if page_status and not page_status.get("modalOpen"):
+                    if page_status.get("hasZero") and not page_status.get("hasCriar"):
                         self.log(f"   ❌ ERRO: A Delivery #{delivery_clean} NÃO EXISTE no perfil {profile_name} (0 Entregas selecionadas).")
                         self.current_searched_delivery[page_key] = None
                         return "ZERO_ENTREGAS"
-            except Exception:
-                pass
+                    if not page_status.get("hasCriar"):
+                        self.log(f"   ❌ ERRO: Botão 'CRIAR UMA NOTA' não foi encontrado. A Delivery #{delivery_clean} não pertence ao perfil {profile_name}!")
+                        self.current_searched_delivery[page_key] = None
+                        return "ZERO_ENTREGAS"
+            except Exception as e_chk:
+                self.log(f"   ⚠️ Aviso na verificação de entregas: {e_chk}")
 
             modal = page.locator(".modal-content").filter(has_text="Criação de notas").first
 
@@ -462,7 +470,14 @@ class CHEPBotEngine:
                 
                 # --- VERIFICAÇÃO DE "0 Entregas selecionadas" NO LOOP ---
                 try:
-                    if await zero_locator.is_visible(timeout=500):
+                    loop_status = await page.evaluate("""() => {
+                        const text = document.body ? (document.body.innerText || '') : '';
+                        const hasZero = /0\\s+entregas\\s+selecionadas/i.test(text);
+                        const hasCriar = /CRIAR UMA NOTA/i.test(text);
+                        const modalOpen = !!(document.querySelector('.modal-content') && document.querySelector('.modal-content').offsetParent !== null);
+                        return { hasZero, hasCriar, modalOpen };
+                    }""")
+                    if loop_status and not loop_status.get("modalOpen") and not loop_status.get("hasCriar"):
                         self.log(f"   ❌ ERRO: A Delivery #{delivery_clean} NÃO EXISTE no perfil {profile_name} (0 Entregas selecionadas).")
                         self.current_searched_delivery[page_key] = None
                         return "ZERO_ENTREGAS"
@@ -494,15 +509,22 @@ class CHEPBotEngine:
                         page.locator("button, a").filter(has_text="Criar uma nota").last,
                     ]
 
+                    btn_clicked = False
                     for btn in btn_candidates:
                         try:
                             if await btn.is_visible(timeout=800):
                                 await btn.scroll_into_view_if_needed()
                                 await btn.click(force=True)
                                 self.log("   ✅ Botão 'CRIAR UMA NOTA' clicado!")
+                                btn_clicked = True
                                 break
                         except:
                             continue
+
+                    if not btn_clicked:
+                        self.log(f"   ❌ ERRO: Botão 'CRIAR UMA NOTA' não encontrado na tela. A Delivery #{delivery_clean} não existe no perfil {profile_name}!")
+                        self.current_searched_delivery[page_key] = None
+                        return "ZERO_ENTREGAS"
 
                     await self.save_debug_screenshot(page, "debug_05_botao_criar_nota", "Print 5 - Botão Criar Nota")
                     await asyncio.sleep(1)
@@ -676,8 +698,13 @@ class CHEPBotEngine:
                         await asyncio.sleep(1)
                         continue
                     else:
-                        self.log(f"   ⚠️ Limite de {max_modal_attempts} tentativas atingido! Tentando prosseguir para os próximos campos...")
+                        self.log(f"   ⚠️ Limite de {max_modal_attempts} tentativas atingido!")
                         break
+
+            if not modal_ready:
+                self.log(f"❌ ERRO: Não foi possível abrir ou carregar a modal de criação de notas para a Delivery #{delivery_clean}. Operação abortada.")
+                self.is_creating_occurrence = False
+                return False
 
             # --- 2. Seleção da Prioridade ---
             self.log(f"   -> Selecionando Prioridade: '{priority}'...")
