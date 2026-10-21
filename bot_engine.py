@@ -23,27 +23,17 @@ class CHEPBotEngine:
     def pull_window_to_foreground(self):
         """
         Traz a janela do Painel CHEP Bot para o primeiro plano no Windows
-        assim que o print é capturado para aprovação do operador.
+        em tela cheia (maximizada) assim que o print é capturado.
+        Utiliza exclusivamente a API nativa do Windows (ctypes) sem PowerShell,
+        garantindo total conformidade com o antivírus corporativo (Endpoint Protection).
         """
-        try:
-            import subprocess
-            ps_cmd = (
-                '$ws = New-Object -ComObject WScript.Shell; '
-                '$ws.AppActivate("CHEP Bot") -or $ws.AppActivate("localhost:5000")'
-            )
-            subprocess.run(
-                ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd],
-                timeout=3,
-                capture_output=True
-            )
-        except Exception:
-            pass
-
         try:
             import ctypes
             from ctypes import wintypes
             user32 = ctypes.windll.user32
             kernel32 = ctypes.windll.kernel32
+
+            SW_MAXIMIZE = 3
 
             def enum_window_callback(hwnd, extra):
                 if user32.IsWindowVisible(hwnd):
@@ -53,7 +43,10 @@ class CHEPBotEngine:
                         user32.GetWindowTextW(hwnd, buf, length + 1)
                         title = buf.value
                         if any(k in title.lower() for k in ["chep bot", "localhost:5000", "painel web"]):
-                            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                            # Força a janela a abrir em tela cheia (Maximizada)
+                            user32.ShowWindow(hwnd, SW_MAXIMIZE)
+
+                            # Traz para o topo e puxa o foco em primeiro plano
                             fore_hwnd = user32.GetForegroundWindow()
                             fore_thread = user32.GetWindowThreadProcessId(fore_hwnd, None)
                             cur_thread = kernel32.GetCurrentThreadId()
