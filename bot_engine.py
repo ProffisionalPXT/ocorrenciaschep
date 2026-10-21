@@ -20,6 +20,58 @@ class CHEPBotEngine:
         self.current_searched_delivery: Dict[str, str] = {}
         self.load_env_vars()
 
+    def pull_window_to_foreground(self):
+        """
+        Traz a janela do Painel CHEP Bot para o primeiro plano no Windows
+        assim que o print é capturado para aprovação do operador.
+        """
+        try:
+            import subprocess
+            ps_cmd = (
+                '$ws = New-Object -ComObject WScript.Shell; '
+                '$ws.AppActivate("CHEP Bot") -or $ws.AppActivate("localhost:5000")'
+            )
+            subprocess.run(
+                ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd],
+                timeout=3,
+                capture_output=True
+            )
+        except Exception:
+            pass
+
+        try:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+
+            def enum_window_callback(hwnd, extra):
+                if user32.IsWindowVisible(hwnd):
+                    length = user32.GetWindowTextLengthW(hwnd)
+                    if length > 0:
+                        buf = ctypes.create_unicode_buffer(length + 1)
+                        user32.GetWindowTextW(hwnd, buf, length + 1)
+                        title = buf.value
+                        if any(k in title.lower() for k in ["chep bot", "localhost:5000", "painel web"]):
+                            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                            fore_hwnd = user32.GetForegroundWindow()
+                            fore_thread = user32.GetWindowThreadProcessId(fore_hwnd, None)
+                            cur_thread = kernel32.GetCurrentThreadId()
+                            if fore_thread != cur_thread:
+                                user32.AttachThreadInput(cur_thread, fore_thread, True)
+                                user32.BringWindowToTop(hwnd)
+                                user32.SetForegroundWindow(hwnd)
+                                user32.AttachThreadInput(cur_thread, fore_thread, False)
+                            else:
+                                user32.BringWindowToTop(hwnd)
+                                user32.SetForegroundWindow(hwnd)
+                return True
+
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+            user32.EnumWindows(WNDENUMPROC(enum_window_callback), 0)
+        except Exception:
+            pass
+
     @property
     def page(self) -> Optional[Page]:
         if self.pages:
@@ -833,6 +885,9 @@ class CHEPBotEngine:
                 "image_url": f"/static/{fname}",
                 "delivery": delivery_clean
             }
+            
+            # Puxa o foco da janela para o operador aprovar imediatamente
+            self.pull_window_to_foreground()
             
             try:
                 await asyncio.wait_for(approval_event.wait(), timeout=300)

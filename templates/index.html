@@ -1056,7 +1056,64 @@
       fetchLogs();
     });
 
-    // --- Lógica de Aprovação Visual ---
+    // --- Lógica de Aprovação Visual e Foco Automático ---
+    let isApprovalActive = false;
+    let approvalTitleInterval = null;
+    const baseTitle = document.title;
+
+    function playNotificationChime() {
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        const audioCtx = new AudioContextClass();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.12); // A5
+        gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.45);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.45);
+      } catch (e) {
+        // Ignora silenciosamente se o navegador restringir áudio
+      }
+    }
+
+    function startApprovalAlert(delivery) {
+      if (isApprovalActive) return;
+      isApprovalActive = true;
+
+      try {
+        window.focus();
+      } catch (e) {}
+
+      playNotificationChime();
+
+      let toggle = false;
+      if (approvalTitleInterval) clearInterval(approvalTitleInterval);
+      approvalTitleInterval = setInterval(() => {
+        document.title = toggle ? `🚨 [CONFIRMAR APROVAÇÃO] #${delivery}` : `⚠️ CHEP BOT: APROVE A OCORRÊNCIA!`;
+        toggle = !toggle;
+      }, 1000);
+
+      setTimeout(() => {
+        const btnApprove = document.getElementById('btnApproveModal');
+        if (btnApprove) btnApprove.focus();
+      }, 300);
+    }
+
+    function stopApprovalAlert() {
+      isApprovalActive = false;
+      if (approvalTitleInterval) {
+        clearInterval(approvalTitleInterval);
+        approvalTitleInterval = null;
+      }
+      document.title = baseTitle;
+    }
+
     function fetchApprovalStatus() {
       fetch('/api/approval_status')
         .then(res => res.json())
@@ -1066,8 +1123,10 @@
             document.getElementById('approvalDeliveryText').innerText = data.delivery;
             document.getElementById('approvalImage').src = data.image_url + "?t=" + new Date().getTime();
             modal.style.display = 'flex';
+            startApprovalAlert(data.delivery);
           } else {
             modal.style.display = 'none';
+            stopApprovalAlert();
           }
         })
         .catch(err => console.error(err));
@@ -1077,6 +1136,7 @@
     setInterval(fetchApprovalStatus, 3000);
 
     function resolveApproval(action) {
+      stopApprovalAlert();
       document.getElementById('approvalModal').style.display = 'none';
       fetch('/api/resolve_approval', {
         method: 'POST',
@@ -1087,6 +1147,15 @@
         fetchLogs();
       });
     }
+
+    document.addEventListener('keydown', (e) => {
+      const modal = document.getElementById('approvalModal');
+      if (modal && modal.style.display === 'flex') {
+        if (e.key === 'Escape') {
+          resolveApproval('cancel');
+        }
+      }
+    });
   </script>
 
   <!-- Modal de Aprovação Visual -->
@@ -1098,7 +1167,7 @@
       
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
         <button onclick="resolveApproval('cancel')" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.5); padding: 15px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; transition: all 0.2s;">❌ Cancelar e Fechar</button>
-        <button onclick="resolveApproval('approve')" style="background: var(--accent-green); color: white; border: none; padding: 15px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; transition: all 0.2s;">✅ Aprovar e Salvar (Desativado para Teste)</button>
+        <button id="btnApproveModal" onclick="resolveApproval('approve')" style="background: var(--accent-green); color: white; border: none; padding: 15px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; transition: all 0.2s;">✅ Aprovar e Salvar</button>
       </div>
     </div>
   </div>
