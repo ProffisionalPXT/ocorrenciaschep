@@ -58,6 +58,7 @@ def save_json(filepath, data):
 # Deliveries persistidas entre restarts - NAO limpar ao iniciar
 
 LOGS_FILE = os.path.join(BASE_DIR, "logs_history.json")
+RECENT_OCCURRENCES_FILE = os.path.join(BASE_DIR, "recent_occurrences.json")
 
 # Carrega logs do disco ao iniciar
 _sl_raw = load_json(LOGS_FILE, default={"logs": ["Servidor CHEP Bot iniciado!"], "count": 0})
@@ -68,6 +69,38 @@ monitoring_runs_history = []
 monitor_check_count = int(_sl_raw.get("count", 0))
 delivery_statuses = {}
 logs_lock = threading.Lock()
+
+# Histórico recente de ocorrências finalizadas
+recent_occurrences = load_json(RECENT_OCCURRENCES_FILE, default=[])
+if not isinstance(recent_occurrences, list):
+    recent_occurrences = []
+recent_occurrences_lock = threading.Lock()
+
+def add_recent_occurrence(delivery: str, note_type: str, status: str):
+    """
+    Registra ocorrências finalizadas (status: 'concluido' ou 'cancelado').
+    """
+    with recent_occurrences_lock:
+        timestamp = time.strftime("%H:%M")
+        clean_type = str(note_type).replace("SAP (Not App) ", "").strip()
+        # Se for repetido para a mesma delivery e tipo no topo, apenas atualiza
+        if recent_occurrences and recent_occurrences[0].get("delivery") == str(delivery).strip() and recent_occurrences[0].get("type") == clean_type:
+            recent_occurrences[0]["status"] = status
+            recent_occurrences[0]["time"] = timestamp
+            save_json(RECENT_OCCURRENCES_FILE, recent_occurrences)
+            return
+
+        entry = {
+            "id": f"{delivery}_{int(time.time()*1000)}",
+            "delivery": str(delivery).strip(),
+            "type": clean_type,
+            "time": timestamp,
+            "status": status  # "concluido" ou "cancelado"
+        }
+        recent_occurrences.insert(0, entry)
+        if len(recent_occurrences) > 30:
+            recent_occurrences[:] = recent_occurrences[:30]
+        save_json(RECENT_OCCURRENCES_FILE, recent_occurrences)
 
 def save_logs_disk():
     with logs_lock:
@@ -109,7 +142,9 @@ def index():
     messages = load_json(MESSAGES_FILE)
     daily_deliveries = load_json(DAILY_DELIVERIES_FILE, default=[])
     local_ip = get_local_ip()
-    return render_template("index.html", drivers=drivers, messages=messages, daily_deliveries=daily_deliveries, local_ip=local_ip, delivery_statuses=delivery_statuses)
+    with recent_occurrences_lock:
+        recent_list = list(recent_occurrences[:15])
+    return render_template("index.html", drivers=drivers, messages=messages, daily_deliveries=daily_deliveries, local_ip=local_ip, delivery_statuses=delivery_statuses, recent_occurrences=recent_list)
 
 @app.route("/screenshots/<filename>")
 def serve_screenshot(filename):
@@ -578,12 +613,15 @@ def handle_render_store():
 
 @app.route("/api/logs")
 def get_logs():
+    with recent_occurrences_lock:
+        recent_list = list(recent_occurrences[:15])
     return jsonify({
         "logs": logs_list,
         "statuses": delivery_statuses,
         "monitored_deliveries": monitored_deliveries,
         "last_check_time": last_check_time,
-        "server_time": time.time()
+        "server_time": time.time(),
+        "recent_occurrences": recent_list
     })
 
 @app.route("/api/connect_chrome", methods=["POST"])
@@ -662,10 +700,15 @@ def execute_occurrence():
                         if res1 == "ZERO_ENTREGAS":
                             append_log(f"❌ Cancelando fila para {delivery} (0 Entregas selecionadas).")
                             remove_delivery_from_monitoring(delivery)
+                            add_recent_occurrence(delivery, "DADOS MOTORISTA / VEÍCULO", "cancelado")
                             return
                         elif not res1:
                             append_log("❌ Falha no envio da ocorrência do motorista. Interrompendo fila para esta delivery.")
+                            add_recent_occurrence(delivery, "DADOS MOTORISTA / VEÍCULO", "cancelado")
                             return
+                        else:
+                            add_recent_occurrence(delivery, "DADOS MOTORISTA / VEÍCULO", "concluido")
+
                     if include_location and location_text:
                         append_log("[2/3] Ocorrência de STATUS / LOCALIZAÇÃO...")
                         fut2 = asyncio.run_coroutine_threadsafe(
@@ -679,14 +722,19 @@ def execute_occurrence():
                             ),
                             async_loop)
                         res2 = fut2.result()
+                        clean_note = note_type.replace("SAP (Not App) ", "").strip()
                         if res2 == "ZERO_ENTREGAS":
                             append_log(f"❌ Cancelando fila para {delivery} (0 Entregas selecionadas).")
                             remove_delivery_from_monitoring(delivery)
+                            add_recent_occurrence(delivery, clean_note, "cancelado")
                             return
                         elif not res2:
                             append_log("❌ Falha no envio da ocorrência de localização.")
+                            add_recent_occurrence(delivery, clean_note, "cancelado")
+                            return
                         else:
                             append_log(f"[LOG] 🚀 Nota '{note_type}' criada com sucesso.")
+                            add_recent_occurrence(delivery, clean_note, "concluido")
 
                     if include_contact:
                         append_log("[3/3] Resposta no 2º site (contact.cmaweb.chep.com)...")
@@ -705,6 +753,11 @@ def execute_occurrence():
                     append_log(f"❌ [ERRO CRÍTICO] Falha ao processar ocorrência: {str(e_task)}")
                     import traceback
                     traceback.print_exc()
+                    if include_location and location_text:
+                        clean_note = note_type.replace("SAP (Not App) ", "").strip()
+                        add_recent_occurrence(delivery, clean_note, "cancelado")
+                    elif include_driver and driver_text:
+                        add_recent_occurrence(delivery, "DADOS MOTORISTA / VEÍCULO", "cancelado")
 
         threading.Thread(target=run_tasks, daemon=True).start()
         return jsonify({"success": True, "message": "Preenchimento iniciado em segundo plano!"})

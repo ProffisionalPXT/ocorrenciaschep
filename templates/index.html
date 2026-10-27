@@ -495,6 +495,36 @@
           <div class="card-title">📋 Logs de Execução Resumidos</div>
           <div id="logBox" class="log-box"></div>
         </div>
+
+        <!-- PAINEL HISTÓRICO DE OCORRÊNCIAS FINALIZADAS -->
+        <div class="card" style="margin-top: 15px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div class="card-title" style="margin: 0;">📌 Histórico de Ocorrências (Últimas Finalizadas)</div>
+            <span style="font-size: 11px; color: var(--text-muted); font-weight: 600;">(✔ Concluída / ✖ Cancelada)</span>
+          </div>
+          <div id="recentOccurrencesList" style="display: flex; flex-direction: column; gap: 6px; max-height: 230px; overflow-y: auto;">
+            {% if recent_occurrences and recent_occurrences|length > 0 %}
+              {% for item in recent_occurrences %}
+                <div style="{% if item.status == 'concluido' %}background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.35);{% else %}background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35);{% endif %} display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: 8px; font-size: 13px;">
+                  <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span style="color: var(--text-muted); font-family: 'JetBrains Mono', monospace; font-size: 11px;">[{{ item.time }}]</span>
+                    <strong style="color: #f8fafc; font-size: 13px;">#{{ item.delivery }}</strong>
+                    <span style="color: #cbd5e1; font-weight: 500;">- {{ item.type }}</span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px; margin-left: 10px; white-space: nowrap;">
+                    {% if item.status == 'concluido' %}
+                      <span style="font-weight: 800; font-size: 12px; color: #22c55e; letter-spacing: 0.5px;">✔ CONCLUÍDO</span>
+                    {% else %}
+                      <span style="font-weight: 800; font-size: 12px; color: #ef4444; letter-spacing: 0.5px;">✖ CANCELADO</span>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            {% else %}
+              <div style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 12px;">Nenhuma ocorrência finalizada registrada ainda.</div>
+            {% endif %}
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -885,6 +915,40 @@
       }).join('');
     }
 
+    function renderRecentOccurrences(items) {
+      const container = document.getElementById('recentOccurrencesList');
+      if (!container) return;
+
+      if (!items || items.length === 0) {
+        container.innerHTML = '<div style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 12px;">Nenhuma ocorrência finalizada registrada ainda.</div>';
+        return;
+      }
+
+      container.innerHTML = items.map(item => {
+        const isSuccess = item.status === 'concluido';
+        const bg = isSuccess 
+          ? 'background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.35);' 
+          : 'background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35);';
+        
+        const badgeColor = isSuccess ? '#22c55e' : '#ef4444';
+        const badgeText = isSuccess ? '✔ CONCLUÍDO' : '✖ CANCELADO';
+        const timeStr = item.time ? `[${item.time}]` : '';
+
+        return `
+          <div style="${bg} display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: 8px; font-size: 13px;">
+            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              <span style="color: var(--text-muted); font-family: 'JetBrains Mono', monospace; font-size: 11px;">${timeStr}</span>
+              <strong style="color: #f8fafc; font-size: 13px;">#${item.delivery}</strong>
+              <span style="color: #cbd5e1; font-weight: 500;">- ${item.type}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; margin-left: 10px; white-space: nowrap;">
+              <span style="font-weight: 800; font-size: 12px; color: ${badgeColor}; letter-spacing: 0.5px;">${badgeText}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
     function fetchLogs() {
       fetch('/api/logs').then(res => res.json()).then(data => {
         const box = document.getElementById('logBox');
@@ -903,6 +967,10 @@
 
         if (data.statuses) {
           renderStatuses(data.statuses);
+        }
+
+        if (data.recent_occurrences) {
+          renderRecentOccurrences(data.recent_occurrences);
         }
       });
     }
